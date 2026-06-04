@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">录音</string>
+    <string name="btn_record_desc">录音按钮</string>
+    <string name="go_to_list">录音列表</string>
+    <string name="recording_list_title">录音列表</string>
+    <string name="no_recordings">暂无录音</string>
+    <string name="delete_confirm_title">确认删除</string>
+    <string name="delete_confirm_message">确定要删除这条录音吗？此操作无法撤销。</string>
+    <string name="cancel">取消</string>
+    <string name="delete">删除</string>
+    <string name="permission_denied">需要麦克风权限才能录音</string>
+    <string name="play">播放</string>
+    <string name="pause">暂停</string>
+    <string name="stop">停止</string>
+    <string name="recording_error">录音失败，请重试</string>
+    <string name="playback_error">播放失败</string>
+</resources>

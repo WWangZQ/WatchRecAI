@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_dark">
+
+    <!-- 圆形录音按钮：宽 = 屏幕宽度 60%，高 = 1:1 -->
+    <FrameLayout
+        android:id="@+id/recordButton"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@drawable/bg_record_btn_idle"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintWidth_percent="0.6"
+        app:layout_constraintDimensionRatio="1:1"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <!-- 麦克风图标 -->
+        <ImageView
+            android:id="@+id/micIcon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_mic"
+            android:contentDescription="@string/btn_record_desc" />
+
+        <!-- 实时计时 -->
+        <TextView
+            android:id="@+id/timerText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:textColor="@color/white"
+            android:textSize="@dimen/text_time"
+            android:fontFamily="monospace"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+    <!-- 底部录音列表入口 -->
+    <TextView
+        android:id="@+id/goToListBtn"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:gravity="center"
+        android:text="@string/go_to_list"
+        android:textColor="@color/text_secondary"
+        android:textSize="@dimen/text_body"
+        android:drawableStart="@drawable/ic_list"
+        android:drawablePadding="@dimen/padding_small"
+        android:paddingHorizontal="@dimen/padding_normal"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginBottom="@dimen/padding_normal" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

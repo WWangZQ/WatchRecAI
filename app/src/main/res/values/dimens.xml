@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="btn_size_percent">0.6</dimen>
+    <dimen name="list_item_height">88dp</dimen>
+    <dimen name="panel_height">120dp</dimen>
+    <dimen name="play_btn_size">48dp</dimen>
+    <dimen name="text_title">16sp</dimen>
+    <dimen name="text_body">14sp</dimen>
+    <dimen name="text_time">28sp</dimen>
+    <dimen name="text_small">12sp</dimen>
+    <dimen name="padding_tiny">4dp</dimen>
+    <dimen name="padding_small">8dp</dimen>
+    <dimen name="padding_normal">16dp</dimen>
+</resources>
