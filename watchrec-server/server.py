@@ -4,6 +4,7 @@ WatchRec 音频接收服务
 接收手表端通过 HTTP POST 上传的 .m4a 录音文件。
 - 按录制日期归档到 uploads/YYYY-MM-DD/ 子目录
 - 文件名重命名为可读格式：YYYY-MM-DD_HH-MM-SS_<原随机数>.m4a
+- 上传成功后异步调用 FunASR SenseVoice-Small 转写，生成 .json 边车文件
 
 启动方式：  python server.py   或   ./start.sh
 默认端口：  8765（在 config.py 中修改）
@@ -11,6 +12,7 @@ WatchRec 音频接收服务
 
 import re
 import socket
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -29,6 +31,32 @@ tz = ZoneInfo(TIMEZONE)
 
 # 匹配手表端文件名：recording_<timestamp>_<suffix>.m4a
 FILENAME_RE = re.compile(r"^recording_(\d+)_(.+)\.m4a$")
+
+# 后台转写线程池（单线程，按队列顺序执行）
+_transcribe_executor = threading.Thread
+
+
+def _run_transcribe(audio_path: str, display_name: str):
+    """在后台线程中执行转写。"""
+    try:
+        from transcriber import transcribe_and_save
+        result = transcribe_and_save(audio_path)
+        if result:
+            preview = result["transcript"][:40]
+            suffix = "..." if len(result["transcript"]) > 40 else ""
+            print(f"  ✓ 转写完成: {display_name} → \"{preview}{suffix}\"")
+    except Exception as e:
+        print(f"  ✗ 转写失败: {display_name} — {e}")
+
+
+def _enqueue_transcribe(audio_path: str, display_name: str):
+    """将转写任务提交到后台线程。"""
+    t = threading.Thread(
+        target=_run_transcribe,
+        args=(audio_path, display_name),
+        daemon=True,
+    )
+    t.start()
 
 
 def parse_and_rename(raw_name: str) -> tuple[str, str]:
@@ -50,7 +78,6 @@ def parse_and_rename(raw_name: str) -> tuple[str, str]:
         suffix = m.group(2)
         dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=tz)
     else:
-        # 文件名格式不符预期，用当前时间兜底
         dt = datetime.now(tz=tz)
         suffix = "unknown"
 
@@ -69,7 +96,7 @@ def health():
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     """
-    接收音频文件，按录制日期归档保存。
+    接收音频文件，按录制日期归档保存，并在后台触发转写。
     """
     raw_name = file.filename or "unnamed.m4a"
     new_name, date_dir = parse_and_rename(raw_name)
@@ -84,7 +111,9 @@ async def upload(file: UploadFile = File(...)):
     rel_path = f"{date_dir}/{new_name}"
     print(f"  ✓ 已保存: {rel_path}  ({len(content) / 1024:.1f} KB)")
 
-    # TODO: 上传完成后调用 transcribe(filepath) 进行转写
+    # 后台异步转写，不阻塞 HTTP 响应
+    _enqueue_transcribe(str(dest), new_name)
+
     return JSONResponse({"status": "ok", "filename": new_name, "path": rel_path})
 
 

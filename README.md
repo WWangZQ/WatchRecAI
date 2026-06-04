@@ -286,3 +286,88 @@ adb logcat -s AudioUploader
 # 确认标记文件
 adb shell ls /sdcard/Android/data/com.watchrec.app/files/recordings/*.uploaded
 ```
+
+---
+
+## 八、语音转写（FunASR + SenseVoice-Small）
+
+上传的音频自动通过 FunASR SenseVoice-Small 模型转写为文字，结果存为 .json 边车文件。
+
+### 环境要求
+
+| 项 | 要求 |
+|---|---|
+| GPU | NVIDIA 显卡，VRAM ≥ 4GB（推荐 8GB+） |
+| CUDA | 12.x+（需安装 GPU 版 PyTorch） |
+| Python | 3.9+（用于 `zoneinfo`） |
+
+### GPU 版 PyTorch 安装
+
+如果 `torch.cuda.is_available()` 返回 `False`，需要安装 GPU 版：
+
+```bash
+# 查看你的 CUDA 版本
+nvidia-smi  # 看右上角 CUDA Version
+
+# 安装对应版本的 PyTorch（以 CUDA 12.6 为例）
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+# 如果显卡较新（如 RTX 50 系列，需要 CUDA 13.0+）
+pip install --pre torch torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130
+```
+
+验证：
+```bash
+python -c "import torch; print(torch.cuda.is_available())"  # 应输出 True
+```
+
+### 依赖安装
+
+```bash
+cd watchrec-server
+pip install -r requirements.txt
+```
+
+> **注意**：`editdistance` 包在 Windows 上可能编译失败（需要 C++ 编译器）。  
+> FunASR 的 SenseVoice 模型实际上不依赖它。如果安装失败，可以创建一个 stub：
+> ```bash
+> python -c "import site; p=site.getusersitepackages()+'/editdistance'; import os; os.makedirs(p,exist_ok=True); open(p+'/__init__.py','w').write('def eval(a,b): raise NotImplementedError()')"
+> ```
+
+### 首次运行
+
+首次启动 `server.py` 时会自动从 ModelScope 下载 SenseVoice-Small 模型（约 800MB），需要网络连接。下载完成后缓存在本地，后续启动不再下载。
+
+### 转写结果
+
+每条音频转写后，在同目录生成 `.json` 边车文件：
+
+```
+uploads/2026-06-04/
+├── 2026-06-04_14-30-30_486997.m4a    ← 音频
+└── 2026-06-04_14-30-30_486997.json   ← 转写结果
+```
+
+JSON 内容：
+```json
+{
+  "audio_file": "2026-06-04_14-30-30_486997.m4a",
+  "recorded_at": "2026-06-04 14:30:30",
+  "duration_sec": 57.89,
+  "language": "zh",
+  "transcript": "清洗后的纯文本",
+  "raw": "带情感/事件标记的原始输出",
+  "transcribed_at": "2026-06-04 14:31:05"
+}
+```
+
+### 批量补转已有文件
+
+如果已有上传但未转写的音频：
+
+```bash
+cd watchrec-server
+python transcribe_all.py
+```
+
+会扫描所有缺少 `.json` 的 `.m4a` 文件并逐个转写。
