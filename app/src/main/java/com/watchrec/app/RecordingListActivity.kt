@@ -13,6 +13,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.watchrec.app.adapter.RecordingAdapter
@@ -36,6 +38,7 @@ class RecordingListActivity : AppCompatActivity() {
     private lateinit var adapter: RecordingAdapter
     private val player = AudioPlayer()
     private val handler = Handler(Looper.getMainLooper())
+    private var panelHeightPx = 0
 
     /** 用户正在拖动进度条时，暂停自动刷新 */
     private var userSeeking = false
@@ -70,6 +73,8 @@ class RecordingListActivity : AppCompatActivity() {
         playPauseBtn = findViewById(R.id.playPauseBtn)
         stopBtn = findViewById(R.id.stopBtn)
         playbackSeekBar = findViewById(R.id.playbackSeekBar)
+
+        panelHeightPx = resources.getDimensionPixelSize(R.dimen.panel_height)
 
         // 列表
         adapter = RecordingAdapter(
@@ -197,6 +202,7 @@ class RecordingListActivity : AppCompatActivity() {
 
     private fun showPlaybackPanel(item: RecordingItem) {
         playbackPanel.visibility = View.VISIBLE
+        recyclerView.setPadding(0, 0, 0, panelHeightPx)
         playbackFileName.text = item.fileName
         playbackTime.text = "00:00 / --:--"
         playbackSeekBar.progress = 0
@@ -206,6 +212,7 @@ class RecordingListActivity : AppCompatActivity() {
     private fun resetPlaybackUI() {
         handler.removeCallbacks(progressRunnable)
         playbackPanel.visibility = View.GONE
+        recyclerView.setPadding(0, 0, 0, 0)
         playbackSeekBar.progress = 0
         playPauseBtn.setImageResource(R.drawable.ic_play)
     }
@@ -214,6 +221,14 @@ class RecordingListActivity : AppCompatActivity() {
         playPauseBtn.setImageResource(
             if (player.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
         )
+    }
+
+    // ── 返回 ─────────────────────────────────────────────────────
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        super.onBackPressed()
+        finish()
     }
 
     // ── 全屏沉浸 ─────────────────────────────────────────────────

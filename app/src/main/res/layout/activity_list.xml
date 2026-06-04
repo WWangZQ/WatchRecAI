@@ -1,113 +1,118 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout
+<com.watchrec.app.util.SwipeDismissFrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/swipeDismiss"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/bg_dark">
+    android:layout_height="match_parent">
 
-    <!-- 标题 -->
-    <TextView
-        android:id="@+id/titleText"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:gravity="center"
-        android:text="@string/recording_list_title"
-        android:textColor="@color/white"
-        android:textSize="@dimen/text_title"
-        android:background="@color/bg_dark" />
-
-    <!-- 录音列表 -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerView"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="48dp"
-        android:layout_marginBottom="@dimen/panel_height"
-        android:clipToPadding="false"
-        android:paddingBottom="@dimen/padding_small" />
+        android:background="@color/bg_dark">
 
-    <!-- 空状态提示 -->
-    <TextView
-        android:id="@+id/emptyText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:text="@string/no_recordings"
-        android:textColor="@color/text_secondary"
-        android:textSize="@dimen/text_body"
-        android:visibility="gone" />
-
-    <!-- 底部播放面板 -->
-    <LinearLayout
-        android:id="@+id/playbackPanel"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/panel_height"
-        android:layout_gravity="bottom"
-        android:orientation="vertical"
-        android:background="@color/bg_panel"
-        android:paddingHorizontal="@dimen/padding_small"
-        android:paddingTop="@dimen/padding_small"
-        android:paddingBottom="@dimen/padding_tiny"
-        android:visibility="gone">
-
-        <!-- 播放文件名 -->
+        <!-- 标题 -->
         <TextView
-            android:id="@+id/playbackFileName"
+            android:id="@+id/titleText"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
+            android:gravity="center"
+            android:text="@string/recording_list_title"
             android:textColor="@color/white"
-            android:textSize="@dimen/text_small"
-            android:singleLine="true"
-            android:ellipsize="middle" />
+            android:textSize="@dimen/text_title"
+            android:background="@color/bg_dark" />
 
-        <!-- 播放时间 -->
+        <!-- 录音列表 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="48dp"
+            android:clipToPadding="false" />
+
+        <!-- 空状态提示 -->
         <TextView
-            android:id="@+id/playbackTime"
-            android:layout_width="match_parent"
+            android:id="@+id/emptyText"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="@string/no_recordings"
             android:textColor="@color/text_secondary"
-            android:textSize="@dimen/text_small"
-            android:fontFamily="monospace"
-            android:text="00:00 / 00:00" />
+            android:textSize="@dimen/text_body"
+            android:visibility="gone" />
 
-        <!-- 控制栏：播放/暂停 + 进度条 + 停止 -->
+        <!-- 底部播放面板 -->
         <LinearLayout
+            android:id="@+id/playbackPanel"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:layout_height="@dimen/panel_height"
+            android:layout_gravity="bottom"
+            android:orientation="vertical"
+            android:background="@color/bg_panel"
+            android:paddingHorizontal="@dimen/padding_small"
+            android:paddingTop="@dimen/padding_small"
+            android:paddingBottom="@dimen/padding_tiny"
+            android:visibility="gone">
 
-            <ImageButton
-                android:id="@+id/playPauseBtn"
-                android:layout_width="@dimen/play_btn_size"
-                android:layout_height="@dimen/play_btn_size"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_play"
-                android:scaleType="centerInside"
-                android:contentDescription="@string/play" />
-
-            <SeekBar
-                android:id="@+id/playbackSeekBar"
-                android:layout_width="0dp"
+            <!-- 播放文件名 -->
+            <TextView
+                android:id="@+id/playbackFileName"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="@dimen/padding_small"
-                android:progressDrawable="@drawable/seekbar_progress"
-                android:thumb="@drawable/seekbar_thumb"
-                android:max="1000" />
+                android:textColor="@color/white"
+                android:textSize="@dimen/text_small"
+                android:singleLine="true"
+                android:ellipsize="middle" />
 
-            <ImageButton
-                android:id="@+id/stopBtn"
-                android:layout_width="@dimen/play_btn_size"
-                android:layout_height="@dimen/play_btn_size"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_stop"
-                android:scaleType="centerInside"
-                android:contentDescription="@string/stop" />
+            <!-- 播放时间 -->
+            <TextView
+                android:id="@+id/playbackTime"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_small"
+                android:fontFamily="monospace"
+                android:text="00:00 / 00:00" />
+
+            <!-- 控制栏：播放/暂停 + 进度条 + 停止 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/playPauseBtn"
+                    android:layout_width="@dimen/play_btn_size"
+                    android:layout_height="@dimen/play_btn_size"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_play"
+                    android:scaleType="centerInside"
+                    android:contentDescription="@string/play" />
+
+                <SeekBar
+                    android:id="@+id/playbackSeekBar"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginHorizontal="@dimen/padding_small"
+                    android:progressDrawable="@drawable/seekbar_progress"
+                    android:thumb="@drawable/seekbar_thumb"
+                    android:max="1000" />
+
+                <ImageButton
+                    android:id="@+id/stopBtn"
+                    android:layout_width="@dimen/play_btn_size"
+                    android:layout_height="@dimen/play_btn_size"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_stop"
+                    android:scaleType="centerInside"
+                    android:contentDescription="@string/stop" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
-    </LinearLayout>
+    </FrameLayout>
 
-</FrameLayout>
+</com.watchrec.app.util.SwipeDismissFrameLayout>
