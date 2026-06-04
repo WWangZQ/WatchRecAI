@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """
-批量补转：扫描 uploads/ 下所有 .m4a，对没有对应 .json 的文件逐个转写。
+批量补转：扫描 uploads/ 下所有 .m4a，对没有对应 .json 的文件批量转写。
+复用与 server.py 相同的 worker（单模型 + 批量推理）。
 
 用法：
     python transcribe_all.py
@@ -9,22 +10,19 @@
 import sys
 from pathlib import Path
 
-# 确保从项目目录导入 config
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import UPLOAD_DIR
-from transcriber import transcribe_and_save
 
 upload_dir = Path(__file__).parent / UPLOAD_DIR
 
 
-def find_pending() -> list[Path]:
-    """找出所有没有 .json 边车文件的 .m4a 文件。"""
+def find_pending() -> list[str]:
+    """找出所有没有 .json 边车文件的 .m4a 文件路径。"""
     pending = []
     for m4a in sorted(upload_dir.rglob("*.m4a")):
-        json_file = m4a.with_suffix(".json")
-        if not json_file.exists():
-            pending.append(m4a)
+        if not m4a.with_suffix(".json").exists():
+            pending.append(str(m4a))
     return pending
 
 
@@ -35,24 +33,20 @@ def main():
         return
 
     print(f"  找到 {len(pending)} 个待转写文件：")
-    for f in pending:
-        print(f"    - {f.relative_to(upload_dir)}")
+    for p in pending:
+        print(f"    - {Path(p).relative_to(upload_dir)}")
     print()
 
-    success = 0
-    failed = 0
-    for i, m4a in enumerate(pending, 1):
-        print(f"  [{i}/{len(pending)}] {m4a.relative_to(upload_dir)}")
-        try:
-            result = transcribe_and_save(str(m4a))
-            if result:
-                success += 1
-        except Exception as e:
-            print(f"  ✗ 转写失败: {e}")
-            failed += 1
+    # 初始化 worker 并提交全部文件
+    from transcriber import get_worker
+    worker = get_worker()
+    worker.start()
+    worker.submit_batch(pending)
 
-    print()
-    print(f"  完成：成功 {success}，失败 {failed}，共 {len(pending)} 个文件。")
+    # 等待队列清空
+    print("  等待转写完成...")
+    worker.wait_idle()
+    print("  ✓ 全部转写完成。")
 
 
 if __name__ == "__main__":

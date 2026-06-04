@@ -1,19 +1,16 @@
 """
 WatchRec 音频接收服务
 
-接收手表端通过 HTTP POST 上传的 .m4a 录音文件。
-- 按录制日期归档到 uploads/YYYY-MM-DD/ 子目录
-- 文件名重命名为可读格式：YYYY-MM-DD_HH-MM-SS_<原随机数>.m4a
-- 上传成功后异步调用 FunASR SenseVoice-Small 转写，生成 .json 边车文件
+接收手表端上传的 .m4a 录音，按日期归档，后台批量转写。
 
-启动方式：  python server.py   或   ./start.sh
+启动方式：  python server.py   或   ./start.sh / start.bat
 默认端口：  8765（在 config.py 中修改）
 """
 
 import re
 import socket
-import threading
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -22,56 +19,30 @@ from fastapi.responses import JSONResponse
 
 from config import PORT, UPLOAD_DIR, TIMEZONE
 
-app = FastAPI(title="WatchRec Server")
-
-upload_dir = Path(__file__).parent / UPLOAD_DIR
-upload_dir.mkdir(exist_ok=True)
-
 tz = ZoneInfo(TIMEZONE)
+upload_dir = Path(__file__).parent / UPLOAD_DIR
 
-# 匹配手表端文件名：recording_<timestamp>_<suffix>.m4a
 FILENAME_RE = re.compile(r"^recording_(\d+)_(.+)\.m4a$")
 
-# 后台转写线程池（单线程，按队列顺序执行）
-_transcribe_executor = threading.Thread
+
+# ── lifespan：服务启动时初始化转写 worker ─────────────────
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    upload_dir.mkdir(exist_ok=True)
+    from transcriber import init_worker
+    init_worker()
+    yield
+    # 关闭时无特殊清理（worker 是 daemon 线程，随进程退出）
 
 
-def _run_transcribe(audio_path: str, display_name: str):
-    """在后台线程中执行转写。"""
-    try:
-        from transcriber import transcribe_and_save
-        result = transcribe_and_save(audio_path)
-        if result:
-            preview = result["transcript"][:40]
-            suffix = "..." if len(result["transcript"]) > 40 else ""
-            print(f"  ✓ 转写完成: {display_name} → \"{preview}{suffix}\"")
-    except Exception as e:
-        print(f"  ✗ 转写失败: {display_name} — {e}")
+app = FastAPI(title="WatchRec Server", lifespan=lifespan)
 
 
-def _enqueue_transcribe(audio_path: str, display_name: str):
-    """将转写任务提交到后台线程。"""
-    t = threading.Thread(
-        target=_run_transcribe,
-        args=(audio_path, display_name),
-        daemon=True,
-    )
-    t.start()
-
+# ── 文件名解析 ─────────────────────────────────────────────
 
 def parse_and_rename(raw_name: str) -> tuple[str, str]:
-    """
-    解析原始文件名，返回 (新文件名, 日期子目录名)。
-
-    格式示例：
-        recording_1780570430011_486997.m4a
-        → timestamp = 1780570430011 ms
-        → 本地时间 2026-06-04 14:30:30
-        → 新文件名 2026-06-04_14-30-30_486997.m4a
-        → 子目录   2026-06-04
-
-    解析失败时用当前服务器时间兜底。
-    """
+    """解析手表端文件名，返回 (新文件名, 日期子目录)。"""
     m = FILENAME_RE.match(raw_name)
     if m:
         ts_ms = int(m.group(1))
@@ -83,20 +54,20 @@ def parse_and_rename(raw_name: str) -> tuple[str, str]:
 
     date_str = dt.strftime("%Y-%m-%d")
     time_str = dt.strftime("%Y-%m-%d_%H-%M-%S")
-    new_name = f"{time_str}_{suffix}.m4a"
-    return new_name, date_str
+    return f"{time_str}_{suffix}.m4a", date_str
 
+
+# ── 路由 ───────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
-    """手表端用此接口检测服务是否在线。"""
     return {"status": "alive"}
 
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     """
-    接收音频文件，按录制日期归档保存，并在后台触发转写。
+    接收音频文件 → 保存到按日期归档的目录 → 提交转写队列 → 立刻返回 200。
     """
     raw_name = file.filename or "unnamed.m4a"
     new_name, date_dir = parse_and_rename(raw_name)
@@ -111,14 +82,16 @@ async def upload(file: UploadFile = File(...)):
     rel_path = f"{date_dir}/{new_name}"
     print(f"  ✓ 已保存: {rel_path}  ({len(content) / 1024:.1f} KB)")
 
-    # 后台异步转写，不阻塞 HTTP 响应
-    _enqueue_transcribe(str(dest), new_name)
+    # 提交到转写队列（非阻塞）
+    from transcriber import submit
+    submit(str(dest))
 
     return JSONResponse({"status": "ok", "filename": new_name, "path": rel_path})
 
 
+# ── 启动 ───────────────────────────────────────────────────
+
 def get_local_ip() -> str:
-    """获取本机局域网 IP。"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("10.255.255.255", 1))
