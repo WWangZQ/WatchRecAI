@@ -26,6 +26,10 @@ object AudioUploader {
 
     private val executor = Executors.newSingleThreadExecutor()
 
+    /** 最近一次失败原因（供 UI 或调试读取） */
+    var lastError: String? = null
+        private set
+
     /** 上传完成回调（在后台线程调用，如需更新 UI 请切到主线程） */
     var onUploadComplete: ((fileName: String, success: Boolean) -> Unit)? = null
 
@@ -44,9 +48,12 @@ object AudioUploader {
             conn.requestMethod = "GET"
             val ok = conn.responseCode == 200
             conn.disconnect()
+            if (ok) lastError = null
             ok
         } catch (e: Exception) {
-            Log.d(TAG, "Server offline: ${e.message}")
+            val msg = "${e.javaClass.simpleName}: ${e.message}"
+            lastError = msg
+            Log.d(TAG, "Server offline: $msg")
             false
         }
     }
@@ -61,10 +68,15 @@ object AudioUploader {
         if (isUploaded(file)) return true
         return try {
             val ok = doUpload(file)
-            if (ok) markAsUploaded(file)
+            if (ok) {
+                markAsUploaded(file)
+                lastError = null
+            }
             ok
         } catch (e: Exception) {
-            Log.e(TAG, "Upload failed: ${file.name}", e)
+            val msg = "${e.javaClass.simpleName}: ${e.message}"
+            lastError = msg
+            Log.e(TAG, "Upload failed: ${file.name} — $msg", e)
             false
         }
     }
@@ -153,6 +165,7 @@ object AudioUploader {
             if (ok) {
                 Log.d(TAG, "Uploaded: ${file.name}")
             } else {
+                lastError = "HTTP $code"
                 Log.e(TAG, "Upload failed: HTTP $code for ${file.name}")
             }
             return ok
