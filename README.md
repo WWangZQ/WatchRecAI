@@ -199,32 +199,90 @@ WatchRec/
 ├── gradle.properties
 ├── local.properties                        # SDK 路径（自动生成）
 ├── gradlew / gradlew.bat
+├── watchrec-server/                        # 电脑端音频接收服务
+│   ├── server.py                           # FastAPI 主服务
+│   ├── config.py                           # 配置（端口、存储路径）
+│   ├── requirements.txt
+│   ├── start.sh                            # 一键启动
+│   └── uploads/                            # 接收到的音频存放目录
 └── app/
     ├── build.gradle.kts                    # 模块构建脚本
     └── src/main/
         ├── AndroidManifest.xml
         ├── res/                            # 资源文件
         │   ├── drawable/                   # 图标、按钮背景
-        │   ├── layout/                     # 三个布局文件
+        │   ├── layout/                     # 布局文件
         │   └── values/                     # 颜色、字符串、尺寸、主题
         └── java/com/watchrec/app/
             ├── MainActivity.kt             # 录音主界面
             ├── RecordingListActivity.kt    # 录音列表 + 播放
+            ├── RecordingService.kt         # 前台录音服务
             ├── adapter/
             │   └── RecordingAdapter.kt     # RecyclerView 适配器
             ├── model/
             │   └── RecordingItem.kt        # 数据模型
-            ├── recorder/
-            │   └── AudioRecorder.kt        # MediaRecorder 封装
             ├── player/
             │   └── AudioPlayer.kt          # MediaPlayer 封装
+            ├── recorder/
+            │   └── AudioRecorder.kt        # 文件命名工具
+            ├── uploader/
+            │   ├── Config.kt               # 服务器地址配置
+            │   └── AudioUploader.kt        # HTTP 上传逻辑
             └── util/
                 ├── FileUtils.kt            # 文件操作
-                └── TimeUtils.kt            # 时间格式化
+                ├── TimeUtils.kt            # 时间格式化
+                └── SwipeDismissFrameLayout.kt
 ```
 
 ---
 
-## 七、扩展说明
+## 七、局域网上传功能
 
-录音完成回调位于 `MainActivity.kt` 中的 `onRecordingComplete(filePath: String)` 方法，当前为空实现。后续添加上传功能时，在该方法中编写网络请求代码即可，同时需要在 `AndroidManifest.xml` 中添加 `INTERNET` 权限。
+录音完成后自动通过 WiFi 上传到电脑端。手表和电脑必须在**同一个局域网**下。
+
+### 电脑端启动接收服务
+
+```bash
+cd watchrec-server
+pip install -r requirements.txt
+python server.py
+# 输出：服务已启动：http://10.129.35.132:8765
+```
+
+或使用一键脚本：`./start.sh`
+
+### 配置手表端服务器地址
+
+修改 `app/src/main/java/com/watchrec/app/uploader/Config.kt`：
+
+```kotlin
+const val SERVER_URL = "http://10.129.35.132:8765"  // 改为你的电脑局域网 IP
+```
+
+### 上传流程
+
+1. 录音结束后自动触发上传
+2. 上传前先调 `GET /health` 检测服务器是否在线
+3. 服务器不在线或上传失败 → 静默标记为「待上传」，不崩溃
+4. 每次打开 App（`onResume`）自动扫描并重试所有未上传的录音
+5. 上传成功后创建 `.uploaded` 标记文件，列表页显示 ✓
+
+### API 接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查，返回 `{"status": "alive"}` |
+| POST | `/upload` | 上传音频文件（multipart/form-data） |
+
+### 排查
+
+```bash
+# 检查手表能否访问电脑
+adb shell ping -c 3 <电脑IP>
+
+# 查看上传日志
+adb logcat -s AudioUploader
+
+# 确认标记文件
+adb shell ls /sdcard/Android/data/com.watchrec.app/files/recordings/*.uploaded
+```

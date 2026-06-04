@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.watchrec.app.uploader.AudioUploader
 import com.watchrec.app.util.TimeUtils
 
 class MainActivity : AppCompatActivity() {
@@ -124,6 +125,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         hideSystemUI()
         syncUIWithService()
+        // 重试上传所有未上传的录音
+        AudioUploader.uploadPendingFiles(this)
     }
 
     override fun onStop() {
@@ -179,11 +182,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 录音完成回调 —— 预留接口，当前仅日志。
-     * 后续在此处添加上传逻辑。
+     * 录音完成回调 —— 触发上传。
      */
     private fun onRecordingComplete(filePath: String) {
-        // TODO: 后续添加上传逻辑
+        val file = java.io.File(filePath)
+        AudioUploader.uploadAsync(file)
     }
 
     // ── 权限 ──────────────────────────────────────────────────────

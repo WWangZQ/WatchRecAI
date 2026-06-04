@@ -8,3 +8,10 @@
 /captures
 .externalNativeBuild
 .cxx
+
+# Python
+__pycache__/
+*.pyc
+
+# 上传的录音文件
+watchrec-server/uploads/*.m4a

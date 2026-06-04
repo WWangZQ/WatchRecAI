@@ -16,4 +16,6 @@
     <string name="recording_error">录音失败，请重试</string>
     <string name="playback_error">播放失败</string>
     <string name="notify_recording">录音中 %1$s</string>
+    <string name="status_uploaded">✓</string>
+    <string name="status_pending">↑</string>
 </resources>

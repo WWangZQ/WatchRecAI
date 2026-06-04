@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.watchrec.app.adapter.RecordingAdapter
 import com.watchrec.app.model.RecordingItem
 import com.watchrec.app.player.AudioPlayer
+import com.watchrec.app.uploader.AudioUploader
 import com.watchrec.app.util.FileUtils
 import com.watchrec.app.util.TimeUtils
 import java.io.File
@@ -85,6 +86,11 @@ class RecordingListActivity : AppCompatActivity() {
         )
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
+
+        // 上传完成后刷新列表状态
+        AudioUploader.onUploadComplete = { _, _ ->
+            runOnUiThread { loadRecordings() }
+        }
 
         // 播放器回调
         player.onPrepared = { duration ->
@@ -152,6 +158,13 @@ class RecordingListActivity : AppCompatActivity() {
     private fun loadRecordings() {
         val recordings = FileUtils.listRecordings(this)
         adapter.submitList(recordings)
+
+        // 加载上传状态
+        val uploaded = recordings
+            .filter { AudioUploader.isUploaded(java.io.File(it.filePath)) }
+            .map { it.fileName }
+            .toSet()
+        adapter.setUploadedFiles(uploaded)
 
         if (recordings.isEmpty()) {
             emptyText.visibility = View.VISIBLE

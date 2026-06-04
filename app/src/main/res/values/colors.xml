@@ -24,6 +24,9 @@
     <!-- 播放栏 -->
     <color name="playback_bg">#E6FFFFFF</color>
 
+    <!-- 上传状态 -->
+    <color name="upload_done">#FF6B9E6B</color>
+
     <!-- 进度条 -->
     <color name="seekbar_accent">#DA7756</color>
     <color name="seekbar_track">#E8E4DF</color>

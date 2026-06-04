@@ -19,9 +19,15 @@ class RecordingAdapter(
 ) : RecyclerView.Adapter<RecordingAdapter.ViewHolder>() {
 
     private var items: List<RecordingItem> = emptyList()
+    private var uploadedFiles: Set<String> = emptySet()
 
     fun submitList(newItems: List<RecordingItem>) {
         items = newItems
+        notifyDataSetChanged()
+    }
+
+    fun setUploadedFiles(files: Set<String>) {
+        uploadedFiles = files
         notifyDataSetChanged()
     }
 
@@ -33,7 +39,7 @@ class RecordingAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
-        holder.bind(item)
+        holder.bind(item, item.fileName in uploadedFiles)
         holder.itemView.setOnClickListener { onItemClick(item) }
         holder.itemView.setOnLongClickListener {
             onItemLongClick(item)
@@ -46,13 +52,26 @@ class RecordingAdapter(
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val dateTimeText: TextView = itemView.findViewById(R.id.dateTimeText)
         private val durationText: TextView = itemView.findViewById(R.id.durationText)
+        private val uploadStatusText: TextView = itemView.findViewById(R.id.uploadStatusText)
 
-        fun bind(item: RecordingItem) {
+        fun bind(item: RecordingItem, uploaded: Boolean) {
             dateTimeText.text = TimeUtils.formatDateTime(item.timestamp)
             durationText.text = if (item.duration > 0) {
                 TimeUtils.formatDuration(item.duration)
             } else {
                 "--:--"
+            }
+
+            if (uploaded) {
+                uploadStatusText.text = "✓"
+                uploadStatusText.setTextColor(
+                    itemView.context.getColor(R.color.upload_done)
+                )
+            } else {
+                uploadStatusText.text = "↑"
+                uploadStatusText.setTextColor(
+                    itemView.context.getColor(R.color.text_secondary)
+                )
             }
         }
     }
