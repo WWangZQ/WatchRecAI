@@ -1,5 +1,6 @@
 package com.watchrec.app
 
+import android.app.Dialog
 import android.media.MediaMetadataRetriever
 import android.os.Bundle
 import android.os.Handler
@@ -11,7 +12,6 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -185,19 +185,32 @@ class RecordingListActivity : AppCompatActivity() {
     }
 
     private fun onItemLongClicked(item: RecordingItem) {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.delete_confirm_title)
-            .setMessage(R.string.delete_confirm_message)
-            .setPositiveButton(R.string.delete) { _, _ ->
-                if (player.currentFilePath == item.filePath) {
-                    player.stop()
-                    resetPlaybackUI()
-                }
-                FileUtils.deleteRecording(File(item.filePath))
-                loadRecordings()
+        val dialog = Dialog(this)
+        dialog.setContentView(R.layout.dialog_confirm_delete)
+        dialog.window?.apply {
+            setBackgroundDrawableResource(R.drawable.bg_dialog)
+            setLayout(
+                (resources.displayMetrics.widthPixels * 0.82).toInt(),
+                WindowManager.LayoutParams.WRAP_CONTENT
+            )
+            setGravity(android.view.Gravity.CENTER)
+        }
+
+        dialog.findViewById<View>(R.id.btnCancel).setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.findViewById<View>(R.id.btnDelete).setOnClickListener {
+            dialog.dismiss()
+            if (player.currentFilePath == item.filePath) {
+                player.stop()
+                resetPlaybackUI()
             }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
+            FileUtils.deleteRecording(File(item.filePath))
+            loadRecordings()
+        }
+
+        dialog.show()
     }
 
     // ── 播放面板 ─────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <dimen name="list_item_height">88dp</dimen>
-    <dimen name="list_item_spacing">8dp</dimen>
+    <dimen name="list_item_height">62dp</dimen>
+    <dimen name="list_item_spacing">6dp</dimen>
     <dimen name="list_padding_h">10dp</dimen>
     <dimen name="list_padding_bottom">80dp</dimen>
     <dimen name="panel_height">110dp</dimen>

@@ -13,7 +13,7 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="@color/bg_card"
-        android:paddingHorizontal="@dimen/padding_normal">
+        android:paddingHorizontal="12dp">
 
         <!-- 左侧：日期时间 + 时长 -->
         <LinearLayout
@@ -38,14 +38,14 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="@dimen/text_small"
                 android:fontFamily="sans-serif-light"
-                android:layout_marginTop="2dp" />
+                android:layout_marginTop="1dp" />
 
         </LinearLayout>
 
         <!-- 右侧：播放图标 -->
         <ImageView
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
             android:src="@drawable/ic_play"
             android:tint="@color/accent"
             android:contentDescription="@string/play" />
