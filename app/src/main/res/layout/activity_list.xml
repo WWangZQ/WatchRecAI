@@ -8,7 +8,7 @@
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/bg_dark">
+        android:background="@color/bg_main">
 
         <!-- 标题 -->
         <TextView
@@ -17,9 +17,9 @@
             android:layout_height="48dp"
             android:gravity="center"
             android:text="@string/recording_list_title"
-            android:textColor="@color/white"
+            android:textColor="@color/text_primary"
             android:textSize="@dimen/text_title"
-            android:background="@color/bg_dark" />
+            android:fontFamily="sans-serif-medium" />
 
         <!-- 录音列表 -->
         <androidx.recyclerview.widget.RecyclerView
@@ -27,7 +27,9 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_marginTop="48dp"
-            android:clipToPadding="false" />
+            android:paddingHorizontal="@dimen/list_padding_h"
+            android:clipToPadding="false"
+            android:overScrollMode="never" />
 
         <!-- 空状态提示 -->
         <TextView
@@ -38,6 +40,7 @@
             android:text="@string/no_recordings"
             android:textColor="@color/text_secondary"
             android:textSize="@dimen/text_body"
+            android:fontFamily="sans-serif-light"
             android:visibility="gone" />
 
         <!-- 底部播放面板 -->
@@ -47,10 +50,12 @@
             android:layout_height="@dimen/panel_height"
             android:layout_gravity="bottom"
             android:orientation="vertical"
-            android:background="@color/bg_panel"
-            android:paddingHorizontal="@dimen/padding_small"
+            android:background="@drawable/bg_playback_panel"
+            android:clipToOutline="true"
+            android:paddingHorizontal="@dimen/padding_normal"
             android:paddingTop="@dimen/padding_small"
-            android:paddingBottom="@dimen/padding_tiny"
+            android:paddingBottom="6dp"
+            android:elevation="4dp"
             android:visibility="gone">
 
             <!-- 播放文件名 -->
@@ -58,8 +63,9 @@
                 android:id="@+id/playbackFileName"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@color/white"
+                android:textColor="@color/text_primary"
                 android:textSize="@dimen/text_small"
+                android:fontFamily="sans-serif-medium"
                 android:singleLine="true"
                 android:ellipsize="middle" />
 
@@ -70,7 +76,7 @@
                 android:layout_height="wrap_content"
                 android:textColor="@color/text_secondary"
                 android:textSize="@dimen/text_small"
-                android:fontFamily="monospace"
+                android:fontFamily="sans-serif-light"
                 android:text="00:00 / 00:00" />
 
             <!-- 控制栏：播放/暂停 + 进度条 + 停止 -->
@@ -85,9 +91,10 @@
                     android:id="@+id/playPauseBtn"
                     android:layout_width="@dimen/play_btn_size"
                     android:layout_height="@dimen/play_btn_size"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/bg_play_btn"
                     android:src="@drawable/ic_play"
                     android:scaleType="centerInside"
+                    android:padding="8dp"
                     android:contentDescription="@string/play" />
 
                 <SeekBar
@@ -95,7 +102,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:layout_marginHorizontal="@dimen/padding_small"
+                    android:layout_marginHorizontal="10dp"
                     android:progressDrawable="@drawable/seekbar_progress"
                     android:thumb="@drawable/seekbar_thumb"
                     android:max="1000" />
@@ -106,12 +113,23 @@
                     android:layout_height="@dimen/play_btn_size"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:src="@drawable/ic_stop"
+                    android:tint="@color/text_secondary"
                     android:scaleType="centerInside"
                     android:contentDescription="@string/stop" />
 
             </LinearLayout>
 
         </LinearLayout>
+
+        <!-- 播放栏顶部分隔线 -->
+        <View
+            android:id="@+id/playbackDivider"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/divider_height"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="@dimen/panel_height"
+            android:background="@color/divider"
+            android:visibility="gone" />
 
     </FrameLayout>
 

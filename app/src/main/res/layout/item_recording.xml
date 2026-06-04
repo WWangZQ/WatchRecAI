@@ -1,43 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="@dimen/list_item_height"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
-    android:paddingHorizontal="@dimen/padding_normal"
-    android:background="?android:attr/selectableItemBackground">
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="@dimen/list_item_spacing"
+    android:background="@drawable/ripple_card"
+    android:elevation="@dimen/card_elevation">
 
-    <!-- 左侧：日期时间 + 时长 -->
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/list_item_height"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/bg_card"
+        android:paddingHorizontal="@dimen/padding_normal">
 
-        <TextView
-            android:id="@+id/dateTimeText"
-            android:layout_width="wrap_content"
+        <!-- 左侧：日期时间 + 时长 -->
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:textColor="@color/white"
-            android:textSize="@dimen/text_body"
-            android:singleLine="true" />
+            android:layout_weight="1"
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/durationText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
-            android:textSize="@dimen/text_small"
-            android:layout_marginTop="@dimen/padding_tiny" />
+            <TextView
+                android:id="@+id/dateTimeText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/text_body"
+                android:fontFamily="sans-serif-medium"
+                android:singleLine="true" />
+
+            <TextView
+                android:id="@+id/durationText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_small"
+                android:fontFamily="sans-serif-light"
+                android:layout_marginTop="2dp" />
+
+        </LinearLayout>
+
+        <!-- 右侧：播放图标 -->
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_play"
+            android:tint="@color/accent"
+            android:contentDescription="@string/play" />
 
     </LinearLayout>
 
-    <!-- 右侧：播放图标 -->
-    <ImageView
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/ic_play"
-        android:contentDescription="@string/play" />
-
-</LinearLayout>
+</FrameLayout>

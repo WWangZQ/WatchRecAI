@@ -1,12 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
+    <!-- 主背景 -->
+    <color name="bg_main">#FAF9F7</color>
+    <color name="bg_card">#FFFFFF</color>
+    <color name="bg_dark">#FAF9F7</color>
+
+    <!-- 文字 -->
+    <color name="text_primary">#2D2B28</color>
+    <color name="text_secondary">#8C8985</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="btn_idle">#FF444444</color>
-    <color name="btn_recording">#FFE53935</color>
-    <color name="bg_dark">#FF1A1A1A</color>
-    <color name="bg_panel">#FF2A2A2A</color>
-    <color name="text_secondary">#FFAAAAAA</color>
-    <color name="seekbar_progress">#FFFFFFFF</color>
-    <color name="seekbar_bg">#FF555555</color>
+
+    <!-- 强调色 -->
+    <color name="accent">#DA7756</color>
+    <color name="accent_ripple">#33DA7756</color>
+
+    <!-- 按钮 -->
+    <color name="btn_idle">#E8E4DF</color>
+    <color name="btn_recording">#DA7756</color>
+
+    <!-- 分隔线 / 阴影 -->
+    <color name="divider">#E8E4DF</color>
+
+    <!-- 播放栏 -->
+    <color name="playback_bg">#E6FFFFFF</color>
+
+    <!-- 进度条 -->
+    <color name="seekbar_accent">#DA7756</color>
+    <color name="seekbar_track">#E8E4DF</color>
 </resources>

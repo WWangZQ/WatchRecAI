@@ -3,14 +3,14 @@
     <item android:id="@android:id/background">
         <shape>
             <corners android:radius="4dp" />
-            <solid android:color="@color/seekbar_bg" />
+            <solid android:color="@color/seekbar_track" />
         </shape>
     </item>
     <item android:id="@android:id/progress">
         <clip>
             <shape>
                 <corners android:radius="4dp" />
-                <solid android:color="@color/seekbar_progress" />
+                <solid android:color="@color/seekbar_accent" />
             </shape>
         </clip>
     </item>

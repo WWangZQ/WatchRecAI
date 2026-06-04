@@ -34,6 +34,7 @@ class RecordingListActivity : AppCompatActivity() {
     private lateinit var playPauseBtn: ImageButton
     private lateinit var stopBtn: ImageButton
     private lateinit var playbackSeekBar: SeekBar
+    private lateinit var playbackDivider: View
 
     private lateinit var adapter: RecordingAdapter
     private val player = AudioPlayer()
@@ -73,6 +74,7 @@ class RecordingListActivity : AppCompatActivity() {
         playPauseBtn = findViewById(R.id.playPauseBtn)
         stopBtn = findViewById(R.id.stopBtn)
         playbackSeekBar = findViewById(R.id.playbackSeekBar)
+        playbackDivider = findViewById(R.id.playbackDivider)
 
         panelHeightPx = resources.getDimensionPixelSize(R.dimen.panel_height)
 
@@ -202,6 +204,7 @@ class RecordingListActivity : AppCompatActivity() {
 
     private fun showPlaybackPanel(item: RecordingItem) {
         playbackPanel.visibility = View.VISIBLE
+        playbackDivider.visibility = View.VISIBLE
         recyclerView.setPadding(0, 0, 0, panelHeightPx)
         playbackFileName.text = item.fileName
         playbackTime.text = "00:00 / --:--"
@@ -212,6 +215,7 @@ class RecordingListActivity : AppCompatActivity() {
     private fun resetPlaybackUI() {
         handler.removeCallbacks(progressRunnable)
         playbackPanel.visibility = View.GONE
+        playbackDivider.visibility = View.GONE
         recyclerView.setPadding(0, 0, 0, 0)
         playbackSeekBar.progress = 0
         playPauseBtn.setImageResource(R.drawable.ic_play)

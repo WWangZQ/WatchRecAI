@@ -4,14 +4,15 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_dark">
+    android:background="@color/bg_main">
 
-    <!-- 圆形录音按钮：宽 = 屏幕宽度 60%，高 = 1:1 -->
+    <!-- 圆形录音按钮：宽 = 屏幕宽度 60%，1:1 宽高比 -->
     <FrameLayout
         android:id="@+id/recordButton"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:background="@drawable/bg_record_btn_idle"
+        android:elevation="@dimen/btn_elevation"
         android:clickable="true"
         android:focusable="true"
         app:layout_constraintWidth_percent="0.6"
@@ -24,8 +25,8 @@
         <!-- 麦克风图标 -->
         <ImageView
             android:id="@+id/micIcon"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:layout_gravity="center"
             android:src="@drawable/ic_mic"
             android:contentDescription="@string/btn_record_desc" />
@@ -38,7 +39,7 @@
             android:layout_gravity="center"
             android:textColor="@color/white"
             android:textSize="@dimen/text_time"
-            android:fontFamily="monospace"
+            android:fontFamily="sans-serif-light"
             android:visibility="gone" />
 
     </FrameLayout>
@@ -52,8 +53,10 @@
         android:text="@string/go_to_list"
         android:textColor="@color/text_secondary"
         android:textSize="@dimen/text_body"
+        android:fontFamily="sans-serif-light"
         android:drawableStart="@drawable/ic_list"
         android:drawablePadding="@dimen/padding_small"
+        android:drawableTint="@color/text_secondary"
         android:paddingHorizontal="@dimen/padding_normal"
         android:clickable="true"
         android:focusable="true"
