@@ -2,7 +2,10 @@
 cd /d "%~dp0"
 echo === WatchRec Server ===
 
-call conda activate ics
+call "%USERPROFILE%\miniconda3\Scripts\activate.bat" ics 2>nul
+if errorlevel 1 (
+    call "D:\ProgramData\miniconda3\Scripts\activate.bat" ics 2>nul
+)
 if errorlevel 1 (
     echo [ERROR] Cannot activate conda ics env
     pause
