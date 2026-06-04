@@ -1,10 +1,14 @@
 package com.watchrec.app
 
 import android.Manifest
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.view.View
 import android.view.WindowManager
@@ -15,7 +19,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.watchrec.app.recorder.AudioRecorder
 import com.watchrec.app.util.TimeUtils
 
 class MainActivity : AppCompatActivity() {
@@ -30,35 +33,69 @@ class MainActivity : AppCompatActivity() {
     private lateinit var timerText: TextView
     private lateinit var goToListBtn: TextView
 
-    private lateinit var recorder: AudioRecorder
     private val handler = Handler(Looper.getMainLooper())
+    private var service: RecordingService? = null
+    private var bound = false
 
-    private var isRecordingState = false
+    /** Activity 正在销毁（区分解绑和主动 stopService） */
+    private var finishing = false
+
+    // ── Service 绑定 ─────────────────────────────────────────────
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            service = (binder as RecordingService.LocalBinder).getService().also {
+                it.stateListener = listener
+            }
+            bound = true
+            syncUIWithService()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            service?.stateListener = null
+            service = null
+            bound = false
+            handler.removeCallbacks(timerRunnable)
+        }
+    }
+
+    private val listener = object : RecordingService.StateListener {
+        override fun onRecordingStarted() {
+            runOnUiThread { setUIRecording() }
+        }
+
+        override fun onRecordingStopped(filePath: String) {
+            runOnUiThread {
+                setUIIdle()
+                onRecordingComplete(filePath)
+            }
+        }
+
+        override fun onRecordingFailed() {
+            runOnUiThread {
+                setUIIdle()
+                Toast.makeText(this@MainActivity, R.string.recording_error, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     private val timerRunnable = object : Runnable {
         override fun run() {
-            if (recorder.isRecording) {
-                timerText.text = TimeUtils.formatDuration(recorder.getElapsedMillis())
+            val svc = service
+            if (svc != null && svc.isRecording) {
+                timerText.text = TimeUtils.formatDuration(svc.getElapsedMillis())
                 handler.postDelayed(this, TIMER_INTERVAL_MS)
             }
         }
     }
 
+    // ── 生命周期 ─────────────────────────────────────────────────
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // 全屏沉浸
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUI()
-
         setContentView(R.layout.activity_main)
-
-        recorder = AudioRecorder(this)
-
-        // 预留回调
-        recorder.onRecordingComplete = { filePath ->
-            onRecordingComplete(filePath)
-        }
 
         recordButton = findViewById(R.id.recordButton)
         micIcon = findViewById(R.id.micIcon)
@@ -66,9 +103,7 @@ class MainActivity : AppCompatActivity() {
         goToListBtn = findViewById(R.id.goToListBtn)
 
         recordButton.setOnClickListener {
-            if (checkAudioPermission()) {
-                toggleRecording()
-            }
+            if (checkAudioPermission()) toggleRecording()
         }
 
         goToListBtn.setOnClickListener {
@@ -76,40 +111,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        bindService(
+            Intent(this, RecordingService::class.java),
+            connection,
+            Context.BIND_AUTO_CREATE
+        )
+    }
+
     override fun onResume() {
         super.onResume()
         hideSystemUI()
+        syncUIWithService()
     }
+
+    override fun onStop() {
+        super.onStop()
+        handler.removeCallbacks(timerRunnable)
+        if (bound) {
+            service?.stateListener = null
+            unbindService(connection)
+            bound = false
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        finishing = true
+        handler.removeCallbacks(timerRunnable)
+    }
+
+    // ── 录音控制 ─────────────────────────────────────────────────
 
     private fun toggleRecording() {
-        if (!isRecordingState) {
-            startRecording()
+        val svc = service ?: return
+        if (svc.isRecording) {
+            RecordingService.stopService(this)
         } else {
-            stopRecording()
+            RecordingService.startService(this)
         }
     }
 
-    private fun startRecording() {
-        val success = recorder.start()
-        if (!success) {
-            Toast.makeText(this, R.string.recording_error, Toast.LENGTH_SHORT).show()
-            return
+    private fun syncUIWithService() {
+        val svc = service ?: return
+        if (svc.isRecording) {
+            setUIRecording()
+        } else {
+            setUIIdle()
         }
+    }
 
-        isRecordingState = true
+    private fun setUIRecording() {
         recordButton.setBackgroundResource(R.drawable.bg_record_btn_recording)
         micIcon.visibility = View.GONE
         timerText.visibility = View.VISIBLE
-        timerText.text = "00:00"
-
+        timerText.text = TimeUtils.formatDuration(service?.getElapsedMillis() ?: 0)
+        handler.removeCallbacks(timerRunnable)
         handler.post(timerRunnable)
     }
 
-    private fun stopRecording() {
+    private fun setUIIdle() {
         handler.removeCallbacks(timerRunnable)
-        recorder.stop()
-
-        isRecordingState = false
         recordButton.setBackgroundResource(R.drawable.bg_record_btn_idle)
         timerText.visibility = View.GONE
         micIcon.visibility = View.VISIBLE
@@ -128,22 +191,17 @@ class MainActivity : AppCompatActivity() {
     private fun checkAudioPermission(): Boolean {
         return if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED
-        ) {
-            true
-        } else {
+        ) true
+        else {
             ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.RECORD_AUDIO),
-                REQUEST_RECORD_AUDIO
+                this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO
             )
             false
         }
     }
 
     override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_RECORD_AUDIO) {
@@ -166,13 +224,5 @@ class MainActivity : AppCompatActivity() {
                 or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
             )
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        handler.removeCallbacks(timerRunnable)
-        if (recorder.isRecording) {
-            recorder.cancel()
-        }
     }
 }
