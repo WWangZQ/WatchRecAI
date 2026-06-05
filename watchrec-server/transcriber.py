@@ -81,7 +81,7 @@ def _transcribe_single(model, audio_path: str) -> dict:
         "transcript": clean_text,
         "raw": raw_text,
         "language": language,
-        "duration_sec": _get_duration(path),
+        "duration_sec": _parse_duration_from_filename(path),
     }
 
 
@@ -111,7 +111,7 @@ def _transcribe_batch(model, audio_paths: list[str]) -> list[dict]:
             "transcript": clean_text,
             "raw": raw_text,
             "language": language,
-            "duration_sec": _get_duration(Path(audio_paths[i])),
+            "duration_sec": _parse_duration_from_filename(Path(audio_paths[i])),
         })
     return output
 
@@ -294,11 +294,19 @@ def _parse_recorded_at(filename: str) -> str:
     return "unknown"
 
 
-def _get_duration(audio_path: Path) -> float:
-    """获取音频时长（秒）。"""
-    try:
-        import soundfile as sf
-        info = sf.info(str(audio_path))
-        return round(info.duration, 2)
-    except Exception:
-        return 0.0
+def _parse_duration_from_filename(audio_path: Path) -> float | None:
+    """
+    从文件名末尾解析时长毫秒数。
+    文件名格式: YYYY-MM-DD_HH-MM-SS_<duration_ms>.m4a
+    返回秒数，解析失败返回 None。
+    """
+    name = audio_path.stem  # 去掉 .m4a
+    parts = name.rsplit("_", 1)
+    if len(parts) == 2:
+        try:
+            ms = int(parts[1])
+            if ms > 0:
+                return round(ms / 1000.0, 2)
+        except ValueError:
+            pass
+    return None
