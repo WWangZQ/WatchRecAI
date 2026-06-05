@@ -1,7 +1,6 @@
 package com.watchrec.app
 
 import android.app.Dialog
-import android.media.MediaMetadataRetriever
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper

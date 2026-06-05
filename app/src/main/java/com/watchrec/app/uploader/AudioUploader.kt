@@ -137,9 +137,10 @@ object AudioUploader {
         try {
             conn.doOutput = true
             conn.requestMethod = "POST"
+            conn.setChunkedStreamingMode(16384)
             conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$BOUNDARY")
             conn.connectTimeout = 10_000
-            conn.readTimeout = 30_000
+            conn.readTimeout = 60_000
 
             DataOutputStream(conn.outputStream).use { out ->
                 out.writeBytes("--$BOUNDARY$LINE_END")
