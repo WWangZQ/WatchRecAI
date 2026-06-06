@@ -42,27 +42,40 @@ object FileUtils {
     }
 
     /**
+     * 清理已上传且超过保留期的录音（Android 包装）。
+     */
+    fun cleanupUploadedRecordings(context: Context) {
+        val dir = getRecordingDir(context)
+        val deleted = cleanupExpiredUploads(dir, System.currentTimeMillis(), MAX_RETENTION_DAYS)
+        if (deleted > 0) {
+            Log.i(TAG, "Cleanup: deleted $deleted expired uploaded recording(s)")
+        }
+    }
+
+    // ── 纯函数（可测试，无 Android 依赖）─────────────────────
+
+    /**
      * 清理已上传且超过保留期的录音。
      *
      * 安全原则：只删同时满足两个条件的文件——
      *   (a) 存在 .uploaded 标记（确认上传成功）
-     *   (b) 录制时间距今 > MAX_RETENTION_DAYS 天
+     *   (b) 录制时间距今 > retentionDays 天
      *
-     * 无 .uploaded 标记的一律跳过。
+     * @param dir 录音目录
+     * @param nowMs 当前时间戳（毫秒），测试时可注入
+     * @param retentionDays 保留天数
+     * @return 删除的文件数量
      */
-    fun cleanupUploadedRecordings(context: Context) {
-        val dir = getRecordingDir(context)
-        val cutoff = System.currentTimeMillis() - MAX_RETENTION_DAYS * 24 * 60 * 60 * 1000L
+    fun cleanupExpiredUploads(dir: File, nowMs: Long, retentionDays: Int): Int {
+        val cutoff = nowMs - retentionDays * 24 * 60 * 60 * 1000L
         var deleted = 0
 
         dir.listFiles()
             ?.filter { it.isFile && it.name.endsWith(".m4a") }
             ?.forEach { file ->
-                // 检查 .uploaded 标记
                 val marker = File(file.absolutePath + ".uploaded")
                 if (!marker.exists()) return@forEach
 
-                // 解析录制时间：文件名 recording_<timestamp>_<duration>.m4a
                 val timestamp = parseTimestamp(file.name)
                 val recordedAt = timestamp ?: file.lastModified()
 
@@ -70,14 +83,11 @@ object FileUtils {
                     if (file.delete()) {
                         marker.delete()
                         deleted++
-                        Log.d(TAG, "Cleaned up: ${file.name}")
                     }
                 }
             }
 
-        if (deleted > 0) {
-            Log.i(TAG, "Cleanup: deleted $deleted expired uploaded recording(s)")
-        }
+        return deleted
     }
 
     /**
