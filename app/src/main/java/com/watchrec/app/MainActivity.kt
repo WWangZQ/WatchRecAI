@@ -19,8 +19,15 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.watchrec.app.uploader.AudioUploader
+import com.watchrec.app.util.FileUtils
 import com.watchrec.app.util.TimeUtils
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
@@ -110,6 +117,11 @@ class MainActivity : AppCompatActivity() {
         goToListBtn.setOnClickListener {
             startActivity(Intent(this, RecordingListActivity::class.java))
         }
+
+        // 注册后台自动上传（每小时，仅 WiFi）
+        scheduleAutoUpload()
+        // 清理已上传且过期的录音
+        FileUtils.cleanupUploadedRecordings(this)
     }
 
     override fun onStart() {
@@ -127,6 +139,8 @@ class MainActivity : AppCompatActivity() {
         syncUIWithService()
         // 重试上传所有未上传的录音
         AudioUploader.uploadPendingFiles(this)
+        // 上传后清理过期录音
+        FileUtils.cleanupUploadedRecordings(this)
     }
 
     override fun onStop() {
@@ -214,6 +228,27 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.permission_denied, Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    // ── 后台自动上传 ────────────────────────────────────────────
+
+    private fun scheduleAutoUpload() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.UNMETERED) // 仅 WiFi
+            // 如需更省电：加 .setRequiresCharging(true) 变为充电时才上传
+            .build()
+
+        val request = PeriodicWorkRequestBuilder<UploadWorker>(
+            1, TimeUnit.HOURS // 每小时一次
+        )
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            UploadWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP, // 已注册则保留，不重复创建
+            request
+        )
     }
 
     // ── 全屏沉浸 ─────────────────────────────────────────────────

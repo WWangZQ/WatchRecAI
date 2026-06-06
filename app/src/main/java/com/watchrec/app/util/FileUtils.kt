@@ -1,12 +1,17 @@
 package com.watchrec.app.util
 
 import android.content.Context
+import android.util.Log
 import com.watchrec.app.model.RecordingItem
 import java.io.File
 
 object FileUtils {
 
+    private const val TAG = "FileUtils"
     private const val DIR_NAME = "recordings"
+
+    /** 已上传录音保留天数 */
+    const val MAX_RETENTION_DAYS = 3
 
     /**
      * 获取录音文件存储目录，不存在则创建。
@@ -34,5 +39,59 @@ object FileUtils {
      */
     fun deleteRecording(file: File): Boolean {
         return file.delete()
+    }
+
+    /**
+     * 清理已上传且超过保留期的录音。
+     *
+     * 安全原则：只删同时满足两个条件的文件——
+     *   (a) 存在 .uploaded 标记（确认上传成功）
+     *   (b) 录制时间距今 > MAX_RETENTION_DAYS 天
+     *
+     * 无 .uploaded 标记的一律跳过。
+     */
+    fun cleanupUploadedRecordings(context: Context) {
+        val dir = getRecordingDir(context)
+        val cutoff = System.currentTimeMillis() - MAX_RETENTION_DAYS * 24 * 60 * 60 * 1000L
+        var deleted = 0
+
+        dir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".m4a") }
+            ?.forEach { file ->
+                // 检查 .uploaded 标记
+                val marker = File(file.absolutePath + ".uploaded")
+                if (!marker.exists()) return@forEach
+
+                // 解析录制时间：文件名 recording_<timestamp>_<duration>.m4a
+                val timestamp = parseTimestamp(file.name)
+                val recordedAt = timestamp ?: file.lastModified()
+
+                if (recordedAt < cutoff) {
+                    if (file.delete()) {
+                        marker.delete()
+                        deleted++
+                        Log.d(TAG, "Cleaned up: ${file.name}")
+                    }
+                }
+            }
+
+        if (deleted > 0) {
+            Log.i(TAG, "Cleanup: deleted $deleted expired uploaded recording(s)")
+        }
+    }
+
+    /**
+     * 从文件名解析录制时间戳（毫秒）。
+     * 格式：recording_<timestamp>_<durationMs>.m4a
+     * 解析失败返回 null。
+     */
+    fun parseTimestamp(fileName: String): Long? {
+        val name = fileName.substringBeforeLast('.')
+        val prefix = "recording_"
+        if (!name.startsWith(prefix)) return null
+        val rest = name.removePrefix(prefix)
+        val firstUnderscore = rest.indexOf('_')
+        if (firstUnderscore <= 0) return null
+        return rest.substring(0, firstUnderscore).toLongOrNull()
     }
 }
