@@ -284,6 +284,25 @@ def wait_idle(timeout: float | None = None):
     get_worker().wait_idle(timeout)
 
 
+def ensure_model_loaded():
+    """预加载模型（启动时调用，避免第一批音频卡在模型下载）。"""
+    _get_model()
+
+
+def transcribe_files(audio_paths: list[str]) -> list[dict]:
+    """
+    直接批量转写（不走 worker 队列，供 poller 等外部驱动方调用）。
+    返回与 audio_paths 等长的结果列表。
+    """
+    model = _get_model()
+    n = len(audio_paths)
+    if n == 0:
+        return []
+    if n == 1:
+        return [_transcribe_single(model, audio_paths[0])]
+    return _transcribe_batch(model, audio_paths)
+
+
 # ── 辅助函数 ──────────────────────────────────────────────
 
 def _parse_recorded_at(filename: str) -> str:

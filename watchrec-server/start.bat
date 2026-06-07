@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-echo === WatchRec Server ===
+echo === WatchRec Poller ===
 
 call "%USERPROFILE%\miniconda3\Scripts\activate.bat" ics 2>nul
 if errorlevel 1 (
@@ -12,8 +12,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Env: ics
-python -c "import torch; print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A')"
+if not exist .env (
+    echo [ERROR] .env not found. Copy .env.example and fill in APP_TOKEN.
+    pause
+    exit /b 1
+)
 
-python server.py
+python poller.py
 pause

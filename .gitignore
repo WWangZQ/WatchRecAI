@@ -13,8 +13,13 @@
 __pycache__/
 *.pyc
 
+# 环境变量（含 token 密钥）
+.env
+
 # 上传的录音文件和转写结果
 watchrec-server/uploads/**/*.m4a
 watchrec-server/uploads/**/*.json
+watchrec-server/downloads/**/*.m4a
+watchrec-server/downloads/**/*.json
 watchrec-vps/uploads/**/*.m4a
 watchrec-vps/uploads/**/*.json

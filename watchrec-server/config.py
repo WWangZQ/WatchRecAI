@@ -1,18 +1,21 @@
-"""WatchRec 音频接收服务 — 配置文件"""
+"""WatchRec 电脑端配置 — VPS 拉取 + 本地转写"""
 
-# 服务端口
-PORT = 8765
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 
-# 上传文件存储目录（相对于本文件所在目录）
-UPLOAD_DIR = "uploads"
+load_dotenv()
 
-# 时区
-TIMEZONE = "Asia/Shanghai"
+# ── VPS 连接 ─────────────────────────────────────────────
 
-# ── 转写参数 ──────────────────────────────────────────────
+VPS_BASE_URL = "https://202.189.23.245:27312"
+APP_TOKEN = os.environ.get("APP_TOKEN", "")
+CA_CERT = os.environ.get("CA_CERT", str(Path(__file__).parent / "server.crt"))
 
-# FunASR batch_size_s：按音频秒数控制批大小，越大 GPU 利用率越高，显存占用也越大
-BATCH_SIZE_S = 300
+# ── 轮询 ─────────────────────────────────────────────────
 
-# 单批最多取几个文件（防止显存溢出的硬上限）
-MAX_BATCH_FILES = 16
+POLL_INTERVAL_SEC = 30
+
+# ── 本地存储 ─────────────────────────────────────────────
+
+LOCAL_DATA_DIR = str(Path(__file__).parent / "downloads")
