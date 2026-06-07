@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-echo === WatchRec Poller ===
+echo === WatchRec PC ===
 
 call "%USERPROFILE%\miniconda3\Scripts\activate.bat" ics 2>nul
 if errorlevel 1 (
@@ -18,5 +18,5 @@ if not exist .env (
     exit /b 1
 )
 
-python poller.py
+python server.py
 pause

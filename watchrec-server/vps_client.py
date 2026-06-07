@@ -10,11 +10,8 @@ VPS HTTP 客户端。
   否则流量走代理会导致证书校验失败。
 """
 
-import os
-from pathlib import Path
-from urllib.parse import quote
-
 import requests
+from urllib.parse import quote
 
 from config import APP_TOKEN, CA_CERT, VPS_BASE_URL
 
@@ -37,6 +34,7 @@ class VPSClient:
         流式下载音频到 dest_dir，返回本地文件路径。
         file_id 如 "2026-06-04/2026-06-04_18-53-50_486997.m4a"
         """
+        from pathlib import Path
         encoded_id = quote(file_id, safe="")
         resp = self.session.get(
             f"{VPS_BASE_URL}/download",
@@ -66,3 +64,20 @@ class VPSClient:
         )
         resp.raise_for_status()
         return True
+
+    def report_lan_info(self, lan_ip: str, port: int):
+        """POST /lan-info 上报局域网信息。"""
+        resp = self.session.post(
+            f"{VPS_BASE_URL}/lan-info",
+            json={"lan_ip": lan_ip, "port": port},
+            timeout=10,
+        )
+        resp.raise_for_status()
+
+    def clear_lan_info(self):
+        """DELETE /lan-info 清除局域网信息。"""
+        try:
+            resp = self.session.delete(f"{VPS_BASE_URL}/lan-info", timeout=10)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"  ⚠ clear_lan_info failed: {e}")

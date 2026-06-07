@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WatchRec 电脑端 — VPS 轮询 + 本地转写
+# WatchRec 电脑端统一服务（LAN 接收 + VPS 轮询 + 转写）
 set -e
 cd "$(dirname "$0")"
 
@@ -14,10 +14,9 @@ source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV"
 echo "  Env: $CONDA_ENV ($(python --version 2>&1))"
 
-# 检查 .env
 if [ ! -f .env ]; then
     echo "[ERROR] .env not found. Copy .env.example and fill in APP_TOKEN."
     exit 1
 fi
 
-python poller.py
+python server.py
