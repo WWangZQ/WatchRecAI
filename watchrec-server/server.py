@@ -22,8 +22,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from config import (
     APP_TOKEN, IP_REPORT_INTERVAL_SEC, LAN_IP_OVERRIDE,
@@ -298,6 +298,118 @@ async def upload(file: UploadFile = File(...), _=Depends(verify_token)):
     _worker.submit(str(dest))
 
     return JSONResponse({"status": "ok", "id": rel_path})
+
+
+# ── 查看界面路由（浏览器用，无鉴权）──────────────────────
+
+@app.get("/")
+async def viewer_index():
+    html_path = Path(__file__).parent / "app" / "viewer.html"
+    if not html_path.exists():
+        raise HTTPException(404, "viewer.html not found")
+    return FileResponse(str(html_path), media_type="text/html")
+
+
+@app.get("/api/recordings")
+async def api_recordings():
+    """列出所有录音，按录制时间倒序。"""
+    data_dir = Path(LOCAL_DATA_DIR)
+    results = []
+
+    for json_path in sorted(data_dir.rglob("*.json")):
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        rel_path = str(json_path.relative_to(data_dir))
+        # .json → .m4a 还原音频 id
+        audio_id = rel_path.replace(".json", ".m4a")
+
+        transcript = data.get("transcript") or ""
+        snippet = (transcript[:80] + "...") if len(transcript) > 80 else transcript
+
+        results.append({
+            "id": audio_id,
+            "date": data.get("recorded_at", "")[:10],
+            "time": data.get("recorded_at", "")[11:19] if len(data.get("recorded_at", "")) > 11 else "",
+            "duration_sec": data.get("duration_sec"),
+            "language": data.get("language"),
+            "snippet": snippet if snippet else "（无转写）",
+            "has_summary": bool(data.get("summary")),
+        })
+
+    # 按 recorded_at 倒序
+    results.sort(key=lambda x: x.get("date", "") + x.get("time", ""), reverse=True)
+    return results
+
+
+@app.get("/api/recording/{id:path}")
+async def api_recording_detail(id: str):
+    """读取单条录音的完整 JSON。"""
+    json_path = Path(LOCAL_DATA_DIR) / id.replace(".m4a", ".json")
+    if not json_path.exists():
+        raise HTTPException(404, f"Recording not found: {id}")
+    return json.loads(json_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/audio/{id:path}")
+async def api_audio(id: str, request: Request):
+    """流式返回音频文件，支持 HTTP Range（206 Partial Content）。"""
+    audio_path = Path(LOCAL_DATA_DIR) / id
+    if not audio_path.exists():
+        raise HTTPException(404, f"Audio not found: {id}")
+
+    file_size = audio_path.stat().st_size
+    range_header = request.headers.get("range")
+
+    if range_header:
+        start, end = _parse_range(range_header, file_size)
+        if start >= file_size:
+            return Response(status_code=416, headers={
+                "Content-Range": f"bytes */{file_size}"
+            })
+
+        content_length = end - start + 1
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(content_length),
+            "Accept-Ranges": "bytes",
+            "Content-Type": "audio/mp4",
+        }
+
+        def file_chunker():
+            with open(audio_path, "rb") as f:
+                f.seek(start)
+                remaining = content_length
+                while remaining > 0:
+                    chunk_size = min(65536, remaining)
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        return StreamingResponse(file_chunker(), status_code=206, headers=headers)
+    else:
+        return FileResponse(
+            str(audio_path),
+            media_type="audio/mp4",
+            headers={"Accept-Ranges": "bytes"},
+        )
+
+
+def _parse_range(range_header: str, file_size: int) -> tuple[int, int]:
+    """
+    解析 Range 头，支持完整和开放式区间。
+    "bytes=1000-2000" → (1000, 2000)
+    "bytes=1000-"     → (1000, file_size-1)
+    """
+    range_val = range_header.replace("bytes=", "").strip()
+    parts = range_val.split("-")
+    start = int(parts[0]) if parts[0] else 0
+    end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
+    return start, min(end, file_size - 1)
 
 
 # ── 启动 ──────────────────────────────────────────────────
