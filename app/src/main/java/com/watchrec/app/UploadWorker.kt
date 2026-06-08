@@ -44,14 +44,7 @@ class UploadWorker(
         return Result.success()
     }
 
-    /**
-     * 检查 RecordingService 是否正在录音。
-     * 通过检查服务是否在前台运行来判断。
-     */
     private fun isRecordingActive(): Boolean {
-        // 简单方式：检查服务是否存活
-        // RecordingService 的 isRecording 是实例属性，这里用 SharedPreferences 或文件检查
-        // 最简单可靠的方式：检查录音目录是否有 _tmp.m4a（正在录制的临时文件）
         val dir = FileUtils.getRecordingDir(applicationContext)
         return dir.listFiles()?.any {
             it.name.endsWith("_tmp.m4a")
@@ -59,8 +52,8 @@ class UploadWorker(
     }
 
     /**
-     * 同步上传所有待上传文件（阻塞直到全部完成）。
-     * 复用 AudioUploader 的 upload() 逻辑（健康检查 + 流式上传 + .uploaded 标记）。
+     * 同步上传所有待上传文件。
+     * 传入 applicationContext 确保 SslHelper 初始化（WorkManager 后台运行时没有 Activity）。
      */
     private fun uploadPendingSync() {
         val context = applicationContext
@@ -84,7 +77,7 @@ class UploadWorker(
                 Log.d(TAG, "Recording started mid-upload, aborting")
                 return
             }
-            val success = AudioUploader.upload(file)
+            val success = AudioUploader.upload(file, context)
             Log.d(TAG, "Upload ${file.name}: ${if (success) "OK" else "FAILED"}")
         }
     }

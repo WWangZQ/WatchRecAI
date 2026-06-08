@@ -9,13 +9,14 @@ import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import javax.net.ssl.HttpsURLConnection
 
 /**
  * 录音文件上传工具（单例）。
  *
- * - 用 HttpURLConnection 发送 multipart/form-data POST
- * - 上传成功后创建 .uploaded 标记文件
- * - 独立线程池，不依赖 Activity 或 Service 生命周期
+ * - 上传到 VPS（HTTPS + token + 自签名证书钉扎）
+ * - setChunkedStreamingMode 流式上传，内存占用恒定
+ * - SslHelper.init 在每个上传入口防御性调用（支持 WorkManager 后台运行）
  */
 object AudioUploader {
 
@@ -36,16 +37,16 @@ object AudioUploader {
     // ── 公开接口 ─────────────────────────────────────────────────
 
     /**
-     * 检测服务器是否在线。
+     * 检测 VPS 是否在线。
      * 会阻塞当前线程，必须在后台线程调用。
+     * @param context 用于初始化 SslHelper（幂等，重复调用无开销）
      */
-    fun isServerOnline(): Boolean {
+    fun isServerOnline(context: Context): Boolean {
+        SslHelper.init(context)
         return try {
-            val url = URL("${Config.SERVER_URL}/health")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 3000
-            conn.readTimeout = 3000
-            conn.requestMethod = "GET"
+            val conn = openVpsConnection("/health", "GET")
+            conn.connectTimeout = 5_000
+            conn.readTimeout = 5_000
             val ok = conn.responseCode == 200
             conn.disconnect()
             if (ok) lastError = null
@@ -53,18 +54,19 @@ object AudioUploader {
         } catch (e: Exception) {
             val msg = "${e.javaClass.simpleName}: ${e.message}"
             lastError = msg
-            Log.d(TAG, "Server offline: $msg")
+            Log.d(TAG, "VPS offline: $msg")
             false
         }
     }
 
     /**
-     * 上传单个文件。
+     * 上传单个文件到 VPS。
      * 会阻塞当前线程，必须在后台线程调用。
-     *
+     * @param context 用于初始化 SslHelper
      * @return true 上传成功
      */
-    fun upload(file: File): Boolean {
+    fun upload(file: File, context: Context): Boolean {
+        SslHelper.init(context)
         if (isUploaded(file)) return true
         return try {
             val ok = doUpload(file)
@@ -84,9 +86,9 @@ object AudioUploader {
     /**
      * 异步上传单个文件（不阻塞调用方）。
      */
-    fun uploadAsync(file: File) {
+    fun uploadAsync(file: File, context: Context) {
         executor.execute {
-            val success = upload(file)
+            val success = upload(file, context)
             onUploadComplete?.invoke(file.name, success)
         }
     }
@@ -97,6 +99,7 @@ object AudioUploader {
      */
     fun uploadPendingFiles(context: Context) {
         executor.execute {
+            SslHelper.init(context)
             val dir = FileUtils.getRecordingDir(context)
             val pending = dir.listFiles()
                 ?.filter {
@@ -111,7 +114,7 @@ object AudioUploader {
             Log.d(TAG, "Found ${pending.size} pending file(s)")
 
             for (file in pending) {
-                val success = upload(file)
+                val success = upload(file, context)
                 onUploadComplete?.invoke(file.name, success)
             }
         }
@@ -130,17 +133,34 @@ object AudioUploader {
         File(file.absolutePath + ".uploaded").createNewFile()
     }
 
+    /**
+     * 构建 VPS HTTPS 连接，自动设置 token 和证书钉扎。
+     */
+    private fun openVpsConnection(path: String, method: String): HttpURLConnection {
+        val conn = URL("${Config.VPS_URL}$path").openConnection() as HttpURLConnection
+        conn.requestMethod = method
+        conn.setRequestProperty("Authorization", "Bearer ${Config.APP_TOKEN}")
+        conn.connectTimeout = 10_000
+        conn.readTimeout = 60_000
+
+        if (conn is HttpsURLConnection) {
+            SslHelper.getFactory()?.let { conn.sslSocketFactory = it }
+            SslHelper.getVerifier()?.let { conn.hostnameVerifier = it }
+        }
+        return conn
+    }
+
+    /**
+     * 流式上传文件到 VPS /upload。
+     * setChunkedStreamingMode 保证内存占用恒定，不会因大文件 OOM。
+     */
     private fun doUpload(file: File): Boolean {
-        val url = URL("${Config.SERVER_URL}/upload")
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = openVpsConnection("/upload", "POST")
 
         try {
             conn.doOutput = true
-            conn.requestMethod = "POST"
             conn.setChunkedStreamingMode(16384)
             conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$BOUNDARY")
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 60_000
 
             DataOutputStream(conn.outputStream).use { out ->
                 out.writeBytes("--$BOUNDARY$LINE_END")
@@ -164,10 +184,10 @@ object AudioUploader {
             val code = conn.responseCode
             val ok = code in 200..299
             if (ok) {
-                Log.d(TAG, "Uploaded: ${file.name}")
+                Log.d(TAG, "Uploaded to VPS: ${file.name}")
             } else {
                 lastError = "HTTP $code"
-                Log.e(TAG, "Upload failed: HTTP $code for ${file.name}")
+                Log.e(TAG, "VPS upload failed: HTTP $code for ${file.name}")
             }
             return ok
         } finally {

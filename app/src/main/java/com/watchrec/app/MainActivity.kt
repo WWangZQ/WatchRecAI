@@ -200,7 +200,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun onRecordingComplete(filePath: String) {
         val file = java.io.File(filePath)
-        AudioUploader.uploadAsync(file)
+        AudioUploader.uploadAsync(file, this)
     }
 
     // ── 权限 ──────────────────────────────────────────────────────
