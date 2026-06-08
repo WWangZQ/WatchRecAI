@@ -322,9 +322,9 @@ async def api_recordings():
         except Exception:
             continue
 
-        rel_path = str(json_path.relative_to(data_dir))
+        rel_path = json_path.relative_to(data_dir).as_posix()
         # .json → .m4a 还原音频 id
-        audio_id = rel_path.replace(".json", ".m4a")
+        audio_id = rel_path[:-5] + ".m4a"  # strip ".json", append ".m4a"
 
         transcript = data.get("transcript") or ""
         snippet = (transcript[:80] + "...") if len(transcript) > 80 else transcript
@@ -344,19 +344,35 @@ async def api_recordings():
     return results
 
 
-@app.get("/api/recording/{id:path}")
-async def api_recording_detail(id: str):
+def _safe_resolve(data_dir: Path, id: str, suffix: str) -> Path:
+    """
+    从 id 安全拼出文件路径，校验仍在 data_dir 内（防目录穿越）。
+    id 格式：2026-06-08/2026-06-08_15-18-27_14898.m4a
+    suffix：".json" 或 ".m4a"
+    """
+    # 统一用正斜杠，再替换扩展名
+    base_id = id.replace("\\", "/").rsplit(".", 1)[0]
+    target = (data_dir / (base_id + suffix)).resolve()
+    if not str(target).startswith(str(data_dir.resolve())):
+        raise HTTPException(403, "Path traversal")
+    return target
+
+
+@app.get("/api/recording")
+async def api_recording_detail(id: str = Query(...)):
     """读取单条录音的完整 JSON。"""
-    json_path = Path(LOCAL_DATA_DIR) / id.replace(".m4a", ".json")
+    data_dir = Path(LOCAL_DATA_DIR)
+    json_path = _safe_resolve(data_dir, id, ".json")
     if not json_path.exists():
         raise HTTPException(404, f"Recording not found: {id}")
     return json.loads(json_path.read_text(encoding="utf-8"))
 
 
-@app.get("/api/audio/{id:path}")
-async def api_audio(id: str, request: Request):
+@app.get("/api/audio")
+async def api_audio(id: str = Query(...), request: Request = ...):
     """流式返回音频文件，支持 HTTP Range（206 Partial Content）。"""
-    audio_path = Path(LOCAL_DATA_DIR) / id
+    data_dir = Path(LOCAL_DATA_DIR)
+    audio_path = _safe_resolve(data_dir, id, ".m4a")
     if not audio_path.exists():
         raise HTTPException(404, f"Audio not found: {id}")
 

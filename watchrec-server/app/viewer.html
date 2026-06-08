@@ -372,7 +372,7 @@ async function selectRecording(id) {
   detail.innerHTML = '<div class="empty-state">加载中…</div>';
 
   try {
-    const res = await fetch(`/api/recording/${encodeURIComponent(id)}`);
+    const res = await fetch('/api/recording?id=' + encodeURIComponent(id));
     const data = await res.json();
     renderDetail(data);
   } catch (e) {
@@ -380,7 +380,7 @@ async function selectRecording(id) {
   }
 
   // Switch audio source — pause, no autoplay
-  audio.src = `/api/audio/${encodeURIComponent(id)}`;
+  audio.src = '/api/audio?id=' + encodeURIComponent(id);
   audio.pause();
   updatePlayBtn(false);
   $('#playerBar').classList.remove('hidden');
