@@ -70,10 +70,71 @@ def find_local_json(data_dir: str, file_id: str) -> Path | None:
 
 # ── LAN IP 探测 ────────────────────────────────────────────
 
-def detect_lan_ip() -> str:
-    """取默认出口 IP。Clash TUN 下可能返回 198.18.x.x（假 IP），手表回退走 VPS，无害。"""
-    if LAN_IP_OVERRIDE:
-        return LAN_IP_OVERRIDE
+import ipaddress
+
+# 需要排除的虚拟网卡名称关键词（不区分大小写）
+_VIRTUAL_KEYWORDS = [
+    "meta", "clash", "tailscale", "vmware", "virtualbox",
+    "hyper-v", "vethernet", "wsl", "loopback", "npcap",
+]
+# 优先匹配的物理网卡关键词
+_PHYSICAL_KEYWORDS = ["wi-fi", "wifi", "wlan", "以太网", "ethernet", "eth"]
+
+
+def _is_private_rfc1918(ip_str: str) -> bool:
+    """判断是否是 RFC1918 私有地址，同时排除 Clash TUN (198.18/15)、链路本地 (169.254/16)。"""
+    try:
+        addr = ipaddress.IPv4Address(ip_str)
+    except ValueError:
+        return False
+    return addr in ipaddress.IPv4Network("10.0.0.0/8") \
+        or addr in ipaddress.IPv4Network("172.16.0.0/12") \
+        or addr in ipaddress.IPv4Network("192.168.0.0/16")
+
+
+def _is_virtual_interface(name: str) -> bool:
+    lower = name.lower()
+    return any(kw in lower for kw in _VIRTUAL_KEYWORDS)
+
+
+def _interface_priority(name: str) -> int:
+    """物理网卡优先（返回 0），虚拟/未知排后（返回 1）。"""
+    lower = name.lower()
+    return 0 if any(kw in lower for kw in _PHYSICAL_KEYWORDS) else 1
+
+
+def _detect_via_psutil() -> str | None:
+    """用 psutil 枚举网卡，挑出真实局域网 IP。"""
+    try:
+        import psutil
+    except ImportError:
+        return None
+
+    candidates: list[tuple[int, str]] = []  # (priority, ip)
+
+    for iface_name, addrs in psutil.net_if_addrs().items():
+        if _is_virtual_interface(iface_name):
+            continue
+        priority = _interface_priority(iface_name)
+        for addr in addrs:
+            if addr.family.name != "AF_INET":
+                continue
+            ip_str = addr.address
+            if ip_str.startswith("127."):
+                continue
+            if _is_private_rfc1918(ip_str):
+                candidates.append((priority, ip_str))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[0])
+    chosen = candidates[0][1]
+    return chosen
+
+
+def _detect_via_udp() -> str:
+    """兜底：UDP connect 方法（Clash TUN 下可能返回 198.18.x.x）。"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -82,6 +143,16 @@ def detect_lan_ip() -> str:
         return ip
     except Exception:
         return "127.0.0.1"
+
+
+def detect_lan_ip() -> str:
+    """
+    检测本机局域网 IP。
+    优先级：LAN_IP_OVERRIDE → psutil 枚举（排除 TUN/虚拟网卡）→ UDP connect 兜底。
+    """
+    if LAN_IP_OVERRIDE:
+        return LAN_IP_OVERRIDE
+    return _detect_via_psutil() or _detect_via_udp()
 
 
 # ── 后台线程：VPS 轮询 ────────────────────────────────────
