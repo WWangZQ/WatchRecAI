@@ -29,3 +29,9 @@ TIMEZONE = "Asia/Shanghai"
 
 # ── LAN IP（留空 = 自动探测，Clash TUN 下可能返回假 IP，手表回退走 VPS，无害）──
 LAN_IP_OVERRIDE = os.environ.get("LAN_IP_OVERRIDE", "")
+
+# ── AI 整理（OpenAI 兼容在线 API；留空则跳过去噪/总结）────────
+# 原文 → 去噪 → 全文 → 总结，都走同一个 LLM。
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")   # 形如 https://api.openai.com/v1
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")

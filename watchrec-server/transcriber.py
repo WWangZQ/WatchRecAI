@@ -147,13 +147,25 @@ def write_sidecar(audio_path: str, result: dict) -> Path:
         "recorded_at": recorded_at,
         "duration_sec": result.get("duration_sec"),
         "language": result.get("language", ""),
-        "transcript": result.get("transcript", ""),
-        "raw": result.get("raw", ""),
+        "transcript": result.get("transcript", ""),  # 原文：去标记逐字稿
+        "raw": result.get("raw", ""),                 # 原始标记文本
+        "full_text": result.get("full_text"),         # 全文：AI 去噪（待生成）
+        "summary": result.get("summary"),             # AI 总结（待生成）
         "transcribed_at": datetime.now(_tz).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return json_path
+
+
+def update_sidecar(audio_path: str, fields: dict) -> None:
+    """把若干字段合并进已有的 .json 边车（如 AI 生成的 full_text / summary）。"""
+    json_path = Path(audio_path).with_suffix(".json")
+    if not json_path.exists():
+        return
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    data.update(fields)
+    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ── 辅助函数 ──────────────────────────────────────────────

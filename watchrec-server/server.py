@@ -341,8 +341,8 @@ async def api_recordings():
         # .json → .m4a 还原音频 id
         audio_id = rel_path[:-5] + ".m4a"  # strip ".json", append ".m4a"
 
-        transcript = data.get("transcript") or ""
-        snippet = (transcript[:80] + "...") if len(transcript) > 80 else transcript
+        text = data.get("full_text") or data.get("transcript") or ""
+        snippet = (text[:80] + "...") if len(text) > 80 else text
 
         results.append({
             "id": audio_id,
@@ -381,6 +381,36 @@ async def api_recording_detail(id: str = Query(...)):
     if not json_path.exists():
         raise HTTPException(404, f"Recording not found: {id}")
     return json.loads(json_path.read_text(encoding="utf-8"))
+
+
+# 注意：同步 def → FastAPI 在线程池跑，LLM 网络阻塞不卡事件循环
+@app.post("/api/enrich")
+def api_enrich(id: str = Query(...)):
+    """对单条录音重新生成「全文」（AI 去噪）和「AI 总结」，回写边车。"""
+    from llm import is_configured, enrich
+
+    if not is_configured():
+        raise HTTPException(400, "LLM 未配置：请在 .env 填 LLM_BASE_URL / LLM_API_KEY")
+
+    data_dir = Path(LOCAL_DATA_DIR)
+    json_path = _safe_resolve(data_dir, id, ".json")
+    if not json_path.exists():
+        raise HTTPException(404, f"Recording not found: {id}")
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    transcript = data.get("transcript") or ""
+    if not transcript.strip():
+        raise HTTPException(400, "该录音没有原文，无法生成")
+
+    try:
+        full, summary = enrich(transcript)
+    except Exception as e:
+        raise HTTPException(502, f"AI 调用失败：{e}")
+
+    data["full_text"] = full
+    data["summary"] = summary
+    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok", "full_text": full, "summary": summary}
 
 
 @app.get("/api/audio")

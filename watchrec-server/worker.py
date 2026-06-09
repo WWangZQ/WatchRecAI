@@ -103,6 +103,9 @@ class TranscribeWorker:
                 speed = total_dur / elapsed if elapsed > 0 else 0
                 print(f"  ✓ 批次完成: {n} 个文件, {elapsed:.1f}s, "
                       f"音频 {total_dur:.0f}s, RTF {speed:.1f}x")
+
+                # 5. AI 去噪 + 总结（可选；未配置 LLM 则跳过）
+                self._enrich(todo, results)
             except Exception as e:
                 print(f"  ✗ 批次转写失败: {e}")
 
@@ -110,3 +113,26 @@ class TranscribeWorker:
                 set_state(transcribing=None)
                 for _ in batch:
                     self._queue.task_done()
+
+    def _enrich(self, paths: list[str], results: list):
+        """转写完成后，逐个调 LLM：原文 → 全文(去噪) → 总结，写回边车。"""
+        try:
+            from llm import is_configured, enrich
+        except Exception as e:
+            print(f"  ✗ AI 模块加载失败: {e}")
+            return
+        if not is_configured():
+            return
+
+        from transcriber import update_sidecar
+        for path, result in zip(paths, results):
+            if not result or not result.get("transcript"):
+                continue
+            name = Path(path).name
+            set_state(transcribing=f"AI 整理 {name}")
+            try:
+                full, summary = enrich(result["transcript"])
+                update_sidecar(path, {"full_text": full, "summary": summary})
+                print(f"    ✎ AI 整理完成: {name}")
+            except Exception as e:
+                print(f"    ✗ AI 整理失败: {name} — {e}")
