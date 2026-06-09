@@ -92,6 +92,11 @@ class TranscribeWorker:
             try:
                 if todo:
                     self._process(todo)
+            except Exception as e:
+                # 单批异常绝不能杀死 worker 线程，否则后续转写全停
+                import traceback
+                print(f"  ✗ 转写处理异常（已跳过本批，worker 继续）: {e}")
+                traceback.print_exc()
             finally:
                 for p in batch:
                     self._done(p)
@@ -116,7 +121,7 @@ class TranscribeWorker:
                     print(f"    ✓ [{i+1}/{n}] {Path(path).name} → \"{preview}{suffix}\"")
                     ok.append((path, result))
 
-            total_dur = sum(r.get("duration_sec", 0) for _, r in ok)
+            total_dur = sum((r.get("duration_sec") or 0) for _, r in ok)
             speed = total_dur / elapsed if elapsed > 0 else 0
             print(f"  ✓ 批次完成: {len(ok)}/{n} 成功, {elapsed:.1f}s, "
                   f"音频 {total_dur:.0f}s, RTF {speed:.1f}x")
