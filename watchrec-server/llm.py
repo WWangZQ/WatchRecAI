@@ -11,7 +11,7 @@ AI 整理：调用 OpenAI 兼容的在线 API。
 
 import requests
 
-from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from settings import get_llm
 
 _DENOISE_SYS = (
     "你是中文语音转写整理助手。用户给你的是语音识别得到的逐字稿，"
@@ -30,19 +30,21 @@ _SUMMARY_SYS = (
 
 
 def is_configured() -> bool:
-    return bool(LLM_BASE_URL and LLM_API_KEY)
+    c = get_llm()
+    return bool(c["llm_base_url"] and c["llm_api_key"])
 
 
 def _chat(system: str, user: str, max_tokens: int = 2048, temperature: float = 0.3) -> str:
-    url = LLM_BASE_URL.rstrip("/") + "/chat/completions"
+    c = get_llm()
+    url = c["llm_base_url"].rstrip("/") + "/chat/completions"
     resp = requests.post(
         url,
         headers={
-            "Authorization": f"Bearer {LLM_API_KEY}",
+            "Authorization": f"Bearer {c['llm_api_key']}",
             "Content-Type": "application/json",
         },
         json={
-            "model": LLM_MODEL,
+            "model": c["llm_model"],
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

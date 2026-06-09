@@ -18,6 +18,9 @@ __pycache__/
 # 环境变量（含 token 密钥）
 .env
 
+# 前端保存的运行时设置（含 LLM API Key）
+watchrec-server/settings.json
+
 # 桌面应用运行时日志
 watchrec-server/watchrec.log
 

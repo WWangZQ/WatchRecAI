@@ -32,6 +32,7 @@ from config import (
 from worker import TranscribeWorker
 from vps_client import VPSClient
 from runtime_state import get_logs, get_state, set_state
+from settings import get_llm, save_llm
 
 tz = ZoneInfo(TIMEZONE)
 
@@ -381,6 +382,33 @@ async def api_recording_detail(id: str = Query(...)):
     if not json_path.exists():
         raise HTTPException(404, f"Recording not found: {id}")
     return json.loads(json_path.read_text(encoding="utf-8"))
+
+
+# ── AI 设置（前端可填写并持久化）────────────────────────
+
+def _settings_public(c: dict) -> dict:
+    """对外不回传 api_key 明文，只给是否已设置。"""
+    return {
+        "llm_base_url": c.get("llm_base_url", ""),
+        "llm_model": c.get("llm_model", ""),
+        "api_key_set": bool(c.get("llm_api_key")),
+    }
+
+
+@app.get("/api/settings")
+async def api_get_settings():
+    return _settings_public(get_llm())
+
+
+@app.post("/api/settings")
+async def api_save_settings(request: Request):
+    body = await request.json()
+    c = save_llm(
+        body.get("llm_base_url", ""),
+        body.get("llm_api_key", ""),   # 空 = 保留已存的
+        body.get("llm_model", ""),
+    )
+    return _settings_public(c)
 
 
 # 注意：同步 def → FastAPI 在线程池跑，LLM 网络阻塞不卡事件循环

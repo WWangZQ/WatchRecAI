@@ -383,10 +383,54 @@ JSON 内容：
   "recorded_at": "2026-06-04 14:30:30",
   "duration_sec": 57.89,
   "language": "zh",
-  "transcript": "清洗后的纯文本",
+  "transcript": "去标记的逐字稿（原文）",
   "raw": "带情感/事件标记的原始输出",
+  "full_text": "AI 去噪整理后的通顺全文（未配置 LLM 时为 null）",
+  "summary": "AI 总结（未配置 LLM 时为 null）",
   "transcribed_at": "2026-06-04 14:31:05"
 }
 ```
 
 > 电脑端轮询 VPS 时会自动转写所有缺少 `.json` 的音频，无需手动补转。
+
+---
+
+## 九、AI 整理（去噪全文 + 总结）
+
+转写得到的是逐字稿，含口头禅、重复、错别字。可选接一层 **OpenAI 兼容的在线 LLM**，把它整理成可读「全文」并生成「AI 总结」：
+
+```
+原文（逐字稿） ──AI 去噪──▶ 全文（通顺可读） ──AI 提炼──▶ AI 总结（精炼有重点）
+```
+
+查看界面每条录音按 **AI 总结 / 全文 / 原文 / 原始标记（折叠）** 四层展示。
+
+### 配置 LLM（两种方式，二选一）
+
+**方式 A：页面里填（推荐，保存后立即生效、长期保留）**
+
+打开查看界面右上角 **「设置」** → 填 Base URL、API Key、模型 → 保存。配置写入 `watchrec-server/settings.json`（已 gitignore，含密钥不会进仓库），重启服务依然保留。
+
+**方式 B：`.env` 文件**
+
+```ini
+# watchrec-server/.env
+LLM_BASE_URL=https://你的服务/v1
+LLM_API_KEY=sk-xxxx
+LLM_MODEL=gpt-4o-mini
+```
+
+> 优先级：页面保存的 `settings.json` > `.env`。两者都没配时，**只做转写**，全文/总结留空，不影响其它功能。
+
+### 生成时机
+
+- **新录音**：转写完成后自动去噪 + 总结，写入边车 JSON。
+- **已有录音**：在详情页点 **「用 AI 生成全文与总结」** 按钮（调 `POST /api/enrich?id=`）按需补生成。
+
+### 相关接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET  | `/api/settings` | 读取 LLM 配置（不回传 API Key 明文，只给 `api_key_set`） |
+| POST | `/api/settings` | 保存 LLM 配置（API Key 留空 = 不修改，保留已存的） |
+| POST | `/api/enrich?id=` | 对单条录音重新生成全文与总结 |
