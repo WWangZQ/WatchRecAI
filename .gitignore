@@ -24,10 +24,7 @@ watchrec-server/settings.json
 # 桌面应用运行时日志
 watchrec-server/watchrec.log
 
-# 上传的录音文件和转写结果
-watchrec-server/uploads/**/*.m4a
-watchrec-server/uploads/**/*.json
-watchrec-server/downloads/**/*.m4a
-watchrec-server/downloads/**/*.json
-watchrec-vps/uploads/**/*.m4a
-watchrec-vps/uploads/**/*.json
+# 录音/转写等运行时数据（整目录忽略，含各种音频格式与边车 JSON）
+watchrec-server/uploads/
+watchrec-server/downloads/
+watchrec-vps/uploads/
