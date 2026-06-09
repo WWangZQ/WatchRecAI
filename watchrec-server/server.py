@@ -204,10 +204,14 @@ def _poll_once(data_dir: str):
                 print(f"  ✗ 回报失败: {file_id} — {e}")
             continue
 
-        # 本地已有音频（在队列里等转写或正在转写）→ 跳过
+        # 本地已有音频但还没结果：在队列里就等；否则（上次失败/中断）重新入队
         local_audio = Path(data_dir) / file_id
         if local_audio.exists():
-            print(f"  ⏳ 等待转写: {file_id}")
+            if _worker.is_queued(str(local_audio)):
+                print(f"  ⏳ 等待转写: {file_id}")
+            else:
+                print(f"  ↻ 重新排队转写: {file_id}")
+                _worker.submit(str(local_audio))
             continue
 
         # 都没有 → 需要下载

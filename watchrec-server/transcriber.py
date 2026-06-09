@@ -159,6 +159,28 @@ def write_sidecar(audio_path: str, result: dict) -> Path:
     return json_path
 
 
+def write_failed_sidecar(audio_path: str, error: str) -> Path:
+    """音频无法转写（损坏/格式错误）时写一个失败边车，避免 poller 死循环重试。"""
+    audio = Path(audio_path)
+    json_path = audio.with_suffix(".json")
+    first = (error or "").splitlines()[0][:200] if error else "转写失败"
+    data = {
+        "audio_file": audio.name,
+        "title": None,
+        "recorded_at": _parse_recorded_at(audio.name),
+        "duration_sec": _parse_duration_from_filename(audio),
+        "language": "",
+        "transcript": "",
+        "raw": "",
+        "full_text": None,
+        "summary": None,
+        "error": first,
+        "transcribed_at": datetime.now(_tz).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return json_path
+
+
 def update_sidecar(audio_path: str, fields: dict) -> None:
     """把若干字段合并进已有的 .json 边车（如 AI 生成的 full_text / summary）。"""
     json_path = Path(audio_path).with_suffix(".json")
