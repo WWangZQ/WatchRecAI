@@ -13,6 +13,12 @@ import requests
 
 from settings import get_llm
 
+# 内容可能长达数小时，输出给满。注意：1M 会被 API 拒（400 too large），
+# 当前模型(mimo)上限是 131072(128K) completion tokens，换模型如报 too large 就改这里。
+# 超时也相应放大，避免长内容生成被掐断。
+MAX_TOKENS = 131072
+REQUEST_TIMEOUT = 1800  # 秒
+
 _DENOISE_SYS = (
     "你是中文语音转写整理助手。用户给你的是语音识别得到的逐字稿，"
     "通常有口头禅、重复、结巴、停顿词、同音错别字、缺标点。"
@@ -23,9 +29,11 @@ _DENOISE_SYS = (
 )
 
 _SUMMARY_SYS = (
-    "你是笔记总结助手。用户会给你一段已经整理通顺的口语转写正文。"
-    "请输出精炼的中文总结：提炼核心要点、关键信息，并点出其中有价值的想法（idea）。"
-    "用简短的分点，突出重点，不要复述全文。只输出总结本身。"
+    "你是帮人整理语音笔记的助手。用户会给你一段已经整理通顺的口语正文。"
+    "请用自然、好读的中文写一段总结，就像跟朋友平实地复述这段话的要点："
+    "说清楚主要讲了什么、有哪些关键信息和值得记住的想法。"
+    "要连贯成段、口语化、易读；不要用 Markdown，不要小标题，不要罗列一堆短分点。"
+    "篇幅与内容长短相称，保持精炼。只输出总结本身。"
 )
 
 _HEADLINE_SYS = (
@@ -40,7 +48,7 @@ def is_configured() -> bool:
     return bool(c["llm_base_url"] and c["llm_api_key"])
 
 
-def _chat(system: str, user: str, max_tokens: int = 2048, temperature: float = 0.3) -> str:
+def _chat(system: str, user: str, max_tokens: int = MAX_TOKENS, temperature: float = 0.3) -> str:
     c = get_llm()
     url = c["llm_base_url"].rstrip("/") + "/chat/completions"
     resp = requests.post(
@@ -58,7 +66,7 @@ def _chat(system: str, user: str, max_tokens: int = 2048, temperature: float = 0
             "temperature": temperature,
             "max_tokens": max_tokens,
         },
-        timeout=120,
+        timeout=REQUEST_TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"].strip()
@@ -85,8 +93,9 @@ def headline(text: str) -> str | None:
     t = (text or "").strip()
     if not t:
         return None
-    # max_tokens 给足：mimo 等推理模型会先消耗 token 思考，太小会导致 content 为空
-    h = _chat(_HEADLINE_SYS, t[:2000], max_tokens=1024, temperature=0.3)
+    # 只取开头一段做依据即可（标题不需要全文）；max_tokens 用默认大值，
+    # 推理模型会先耗 token 思考，给小了会导致 content 为空
+    h = _chat(_HEADLINE_SYS, t[:2000], temperature=0.3)
     if not h:
         return None
     # 清理：取首行，去掉引号/书名号/首尾标点
