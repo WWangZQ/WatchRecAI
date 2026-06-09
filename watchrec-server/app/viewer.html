@@ -478,6 +478,29 @@ details[open] summary { margin-bottom: 12px; }
 .btn-primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
 .btn-primary:hover:not(:disabled) { opacity: 0.9; }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Toast ──────────────────────────────────────── */
+
+.toast {
+  position: fixed; left: 20px; bottom: 20px;
+  max-width: 360px;
+  background: var(--card);
+  border: 1px solid var(--border-medium);
+  border-left-width: 3px;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text);
+  z-index: 400;
+  opacity: 0; transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.toast.show { opacity: 1; transform: none; }
+.toast.ok   { border-left-color: var(--sage); }
+.toast.err  { border-left-color: #A23E2A; }
+.toast.busy { border-left-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -488,6 +511,7 @@ details[open] summary { margin-bottom: 12px; }
     <div class="status" id="status">
       <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">连接中…</span></span>
       <span class="pill" id="statusMeta"></span>
+      <button class="log-toggle" onclick="pickUpload()">上传</button>
       <button class="log-toggle" onclick="openSettings()">设置</button>
       <button class="log-toggle" id="logToggle" onclick="toggleLog()">日志</button>
     </div>
@@ -546,6 +570,10 @@ details[open] summary { margin-bottom: 12px; }
     </div>
   </div>
 </div>
+
+<input type="file" id="fileInput" accept="audio/*,.m4a,.mp3,.wav,.aac,.ogg,.flac,.webm"
+       style="display:none" onchange="doUpload(this)">
+<div class="toast" id="toast"></div>
 
 <audio id="audio" preload="metadata"></audio>
 
@@ -704,6 +732,58 @@ async function enrichCurrent() {
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = '生成失败：' + e.message + '（点此重试）'; }
   }
+}
+
+// ── 手动上传 ─────────────────────────────────────
+
+function pickUpload() { $('#fileInput').click(); }
+
+let _uploadPoll = null;
+
+async function doUpload(input) {
+  const f = input.files && input.files[0];
+  input.value = '';  // 允许再次选同一文件
+  if (!f) return;
+
+  showToast('上传中：' + f.name, 'busy', 0);
+  const fd = new FormData();
+  fd.append('file', f);
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || ('HTTP ' + res.status)); }
+    const r = await res.json();
+    showToast('已上传，正在转写…', 'busy', 0);
+    waitForRecording(r.id);
+  } catch (e) {
+    showToast('上传失败：' + e.message, 'err', 5000);
+  }
+}
+
+// 边车 JSON 在转写完成后才生成，轮询列表直到新录音出现
+function waitForRecording(id) {
+  if (_uploadPoll) clearInterval(_uploadPoll);
+  let tries = 0;
+  _uploadPoll = setInterval(async () => {
+    tries++;
+    await loadRecordings();
+    if (recordings.some(r => r.id === id)) {
+      clearInterval(_uploadPoll); _uploadPoll = null;
+      showToast('转写完成', 'ok', 3000);
+      selectRecording(id);
+    } else if (tries >= 40) {  // 约 2 分钟后放弃自动跳转
+      clearInterval(_uploadPoll); _uploadPoll = null;
+      showToast('转写仍在进行，稍后会自动出现在列表', 'busy', 5000);
+    }
+  }, 3000);
+}
+
+let _toastTimer = null;
+function showToast(msg, kind, autohideMs) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (kind || '');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  if (autohideMs) _toastTimer = setTimeout(() => { t.className = 'toast'; }, autohideMs);
 }
 
 // ── AI 设置 ───────────────────────────────────────

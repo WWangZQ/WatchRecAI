@@ -434,3 +434,18 @@ LLM_MODEL=gpt-4o-mini
 | GET  | `/api/settings` | 读取 LLM 配置（不回传 API Key 明文，只给 `api_key_set`） |
 | POST | `/api/settings` | 保存 LLM 配置（API Key 留空 = 不修改，保留已存的） |
 | POST | `/api/enrich?id=` | 对单条录音重新生成全文与总结 |
+
+---
+
+## 十、手动上传音频
+
+不止手表录音 —— 任意音频文件都能拖进来转写。查看界面右上角 **「上传」** → 选文件即可。
+
+- 支持格式：`.m4a .mp3 .wav .aac .ogg .flac .webm .mp4`
+- 上传后走和手表录音**完全相同**的流水线：转写 → AI 去噪全文 → AI 总结
+- 文件存为 `downloads/<日期>/<时间>_manual.<原扩展名>`，录制时间记为上传时刻
+- 转写完成后自动出现在左侧列表（界面会轮询等待，约几秒~数十秒）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/upload` | 手动上传音频（multipart/form-data，本地查看页用，无需 token） |
