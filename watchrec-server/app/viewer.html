@@ -1410,7 +1410,6 @@ let logTimer = null;
 function toggleLog() {
   logOpen = !logOpen;
   $('#logPanel').classList.toggle('open', logOpen);
-  $('#logToggle').classList.toggle('active', logOpen);
   if (logOpen) {
     pollLogs();
     logTimer = setInterval(pollLogs, 1500);
