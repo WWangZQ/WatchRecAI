@@ -850,17 +850,36 @@ const $$ = s => document.querySelectorAll(s);
 const audio = $('#audio');
 let recordings = [];
 let currentId = null;
+let _listSig = '';
 
 // ── Data ─────────────────────────────────────────
+
+function _sig(list) {
+  return JSON.stringify(list.map(r => [r.id, r.title, r.snippet, r.has_summary]));
+}
 
 async function loadRecordings() {
   try {
     const res = await fetch('/api/recordings');
     recordings = await res.json();
+    _listSig = _sig(recordings);
     renderList();
   } catch (e) {
     $('#sidebar').innerHTML = '<div class="empty-state">加载失败</div>';
   }
+}
+
+// 定时拉取列表：手表经 VPS 转写进来的新录音会自动出现，无需刷新页面
+async function autoRefreshList() {
+  if (document.querySelector('.rename-input')) return;  // 重命名进行中，不打断
+  try {
+    const data = await (await fetch('/api/recordings')).json();
+    const sig = _sig(data);
+    if (sig === _listSig) return;   // 无变化，不重绘
+    _listSig = sig;
+    recordings = data;
+    renderList();
+  } catch (e) { /* 暂时不可达，下次再试 */ }
 }
 
 // ── Sidebar ──────────────────────────────────────
@@ -1462,6 +1481,7 @@ loadRecordings();
 showComposer();   // 首屏即「新建任务」上传区
 pollStatus();
 setInterval(pollStatus, 3000);
+setInterval(autoRefreshList, 8000);   // 新录音自动出现在列表
 </script>
 </body>
 </html>
