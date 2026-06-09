@@ -81,7 +81,7 @@ def _transcribe_single(model, audio_path: str) -> dict:
         "transcript": clean_text,
         "raw": raw_text,
         "language": language,
-        "duration_sec": _parse_duration_from_filename(path),
+        "duration_sec": audio_duration(path),
     }
 
 
@@ -111,7 +111,7 @@ def _transcribe_batch(model, audio_paths: list[str]) -> list[dict]:
             "transcript": clean_text,
             "raw": raw_text,
             "language": language,
-            "duration_sec": _parse_duration_from_filename(Path(audio_paths[i])),
+            "duration_sec": audio_duration(audio_paths[i]),
         })
     return output
 
@@ -169,7 +169,7 @@ def write_failed_sidecar(audio_path: str, error: str) -> Path:
         "audio_file": audio.name,
         "title": None,
         "recorded_at": _parse_recorded_at(audio.name),
-        "duration_sec": _parse_duration_from_filename(audio),
+        "duration_sec": audio_duration(audio),
         "language": "",
         "transcript": "",
         "raw": "",
@@ -219,3 +219,27 @@ def _parse_duration_from_filename(audio_path: Path) -> float | None:
         except ValueError:
             pass
     return None
+
+
+def _probe_duration(audio_path) -> float | None:
+    """用 ffprobe 读音频真实时长（秒），失败返回 None。"""
+    import shutil
+    import subprocess
+
+    exe = shutil.which("ffprobe") or "ffprobe"
+    try:
+        out = subprocess.run(
+            [exe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(audio_path)],
+            capture_output=True, text=True, timeout=60,
+        )
+        v = out.stdout.strip()
+        return round(float(v), 2) if v else None
+    except Exception:
+        return None
+
+
+def audio_duration(audio_path) -> float | None:
+    """优先从文件名解析时长（手表录音），否则用 ffprobe 探测（手动上传等）。"""
+    d = _parse_duration_from_filename(Path(audio_path))
+    return d if d else _probe_duration(audio_path)
