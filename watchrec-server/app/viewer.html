@@ -296,7 +296,7 @@ body {
   flex: 1;
   overflow-y: auto;
   /* 阅读栏最宽 820px；窗口小时两侧留白缩到 24px，让文字尽量铺开 */
-  padding: 48px max(24px, calc((100% - 820px) / 2)) 150px;
+  padding: 48px max(32px, calc((100% - 1040px) / 2)) 150px;
 }
 .detail::-webkit-scrollbar { width: 7px; }
 .detail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
@@ -651,6 +651,88 @@ details[open] summary { margin-bottom: 12px; }
 .composer-text { font-size: 15px; font-weight: 500; color: var(--text); }
 .composer-text b { color: var(--accent); font-weight: 600; }
 .composer-hint { font-size: 12.5px; color: var(--tertiary); }
+
+/* ── 右键菜单 ────────────────────────────────────── */
+
+.ctx-menu {
+  position: fixed;
+  min-width: 160px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+  padding: 6px;
+  z-index: 500;
+  display: none;
+  animation: fadeUp 0.14s cubic-bezier(0.25,0.1,0.25,1) both;
+}
+.ctx-menu.open { display: block; }
+.ctx-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ctx-item:hover { background: var(--bg-secondary); }
+.ctx-item svg { color: var(--secondary); flex-shrink: 0; }
+.ctx-item.danger { color: #C0392B; }
+.ctx-item.danger svg { color: #C0392B; }
+.ctx-item.danger:hover { background: rgba(192,57,43,0.08); }
+.ctx-sep { height: 1px; background: var(--border); margin: 5px 6px; }
+
+/* 侧栏内联重命名输入 */
+.rename-input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 3px 7px;
+  outline: none;
+}
+
+/* ── 卡片标题行 + 重试按钮 ───────────────────────── */
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.card-head h3 { margin-bottom: 0 !important; }
+.summary-card .card-head { margin-bottom: 8px; }
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--tertiary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.retry-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
+.retry-btn:disabled { opacity: 0.6; cursor: default; }
+.retry-btn svg { transition: transform 0.2s; }
+.retry-btn.spin svg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -745,6 +827,8 @@ details[open] summary { margin-bottom: 12px; }
        style="display:none" onchange="doUpload(this)">
 <div class="toast" id="toast"></div>
 
+<div class="ctx-menu" id="ctxMenu"></div>
+
 <audio id="audio" preload="metadata"></audio>
 
 <script>
@@ -788,8 +872,9 @@ function renderList() {
     items.forEach(r => {
       const dur = r.duration_sec ? formatDuration(r.duration_sec) : '';
       const active = r.id === currentId ? ' active' : '';
-      html += `<div class="recording-item${active}" data-id="${esc(r.id)}" onclick="selectRecording('${esc(r.id)}')">
-        <div class="item-time">${esc(r.time || '--:--')}<span class="item-meta" style="margin-left:8px">${esc(dur)}</span></div>
+      const label = r.title || r.time || '--:--';
+      html += `<div class="recording-item${active}" data-id="${esc(r.id)}" onclick="selectRecording('${esc(r.id)}')" oncontextmenu="showCtxMenu(event, '${esc(r.id)}')">
+        <div class="item-time">${esc(label)}<span class="item-meta" style="margin-left:8px">${esc(dur)}</span></div>
         <div class="item-snippet">${esc(r.snippet)}</div>
       </div>`;
     });
@@ -836,7 +921,9 @@ function renderDetail(data) {
   const dur = data.duration_sec ? formatDuration(data.duration_sec) : '';
   const recorded = data.recorded_at || '';
 
+  const title = data.title || '';
   let metaParts = [];
+  if (title && recorded) metaParts.push(recorded);
   if (dur) metaParts.push(`时长 ${dur}`);
   if (lang) metaParts.push(lang);
   if (emotion) metaParts.push(emotion);
@@ -847,24 +934,28 @@ function renderDetail(data) {
   const raw = data.raw || '';
 
   let html = `<div class="detail-header">
-    <div class="datetime-line">${esc(recorded)}</div>
+    <div class="datetime-line">${esc(title || recorded)}</div>
     <div class="meta-line">${esc(metaParts.join(' · '))}</div>
   </div>`;
 
   // AI 总结（全文 → 提炼）
+  let sumAction = '';
+  if (summary) sumAction = retryBtn('/api/summarize', '重试');
+  else if (fullText) sumAction = retryBtn('/api/summarize', '生成');
   html += `<div class="summary-card">
-    <div class="label">AI 总结</div>
+    <div class="card-head"><span class="label">AI 总结</span>${sumAction}</div>
     <div>${summary ? esc(summary) : '<span class="placeholder">AI 总结待生成</span>'}</div>
   </div>`;
 
   // 全文（原文 → AI 去噪整理）
-  html += `<div class="card transcript-card"><h3>全文</h3>`;
+  const fullAction = fullText ? retryBtn('/api/enrich', '重新生成') : '';
+  html += `<div class="card transcript-card"><div class="card-head"><h3>全文</h3>${fullAction}</div>`;
   if (fullText) {
     fullText.split(/\n+/).filter(Boolean).forEach(p => { html += `<p>${esc(p)}</p>`; });
   } else {
     html += `<p class="ph">AI 去噪待生成</p>`;
   }
-  if (!fullText || !summary) {
+  if (!fullText) {
     html += `<button class="gen-btn" id="genBtn" onclick="enrichCurrent()">用 AI 生成全文与总结</button>`;
   }
   html += '</div>';
@@ -901,6 +992,117 @@ async function enrichCurrent() {
     loadRecordings();                  // 刷新侧栏摘要
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = '生成失败：' + e.message + '（点此重试）'; }
+  }
+}
+
+// 全文 / 总结 的重试按钮
+function retryBtn(endpoint, label) {
+  return `<button class="retry-btn" title="${label}" onclick="aiRetry('${endpoint}', event)">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+    ${label}
+  </button>`;
+}
+
+async function aiRetry(endpoint, ev) {
+  if (!currentId) return;
+  const btn = ev.currentTarget;
+  btn.classList.add('spin');
+  btn.disabled = true;
+  try {
+    const res = await fetch(endpoint + '?id=' + encodeURIComponent(currentId), { method: 'POST' });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || ('HTTP ' + res.status)); }
+    await selectRecording(currentId);
+    loadRecordings();
+  } catch (e) {
+    btn.classList.remove('spin');
+    btn.disabled = false;
+    showToast('生成失败：' + e.message, 'err', 4000);
+  }
+}
+
+// ── 左侧右键菜单：重命名 / 删除 ───────────────────
+
+let _ctxId = null;
+
+function showCtxMenu(ev, id) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  _ctxId = id;
+  const m = $('#ctxMenu');
+  m.innerHTML = `
+    <button class="ctx-item" onclick="ctxRename()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+      重命名
+    </button>
+    <div class="ctx-sep"></div>
+    <button class="ctx-item danger" onclick="ctxDelete()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      删除
+    </button>`;
+  m.classList.add('open');
+  const mw = 170, mh = 100;
+  let x = ev.clientX, y = ev.clientY;
+  if (x + mw > window.innerWidth) x = window.innerWidth - mw - 8;
+  if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
+  m.style.left = x + 'px';
+  m.style.top = y + 'px';
+  setTimeout(() => document.addEventListener('click', closeCtxMenu, { once: true }), 0);
+}
+
+function closeCtxMenu() { $('#ctxMenu').classList.remove('open'); }
+
+function ctxRename() { const id = _ctxId; closeCtxMenu(); startRename(id); }
+function ctxDelete() { const id = _ctxId; closeCtxMenu(); deleteRecording(id); }
+
+function startRename(id) {
+  const item = [...$$('.recording-item')].find(el => el.dataset.id === id);
+  if (!item || item.querySelector('.rename-input')) return;
+  const timeEl = item.querySelector('.item-time');
+  const rec = recordings.find(r => r.id === id) || {};
+  const input = document.createElement('input');
+  input.className = 'rename-input';
+  input.value = rec.title || rec.time || '';
+  timeEl.style.display = 'none';
+  item.insertBefore(input, timeEl);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    if (save) {
+      try {
+        await fetch('/api/rename?id=' + encodeURIComponent(id), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: input.value.trim() }),
+        });
+      } catch (e) { /* 忽略，下面会重载 */ }
+    }
+    await loadRecordings();
+    if (currentId === id) selectRecording(id);
+  };
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('mousedown', e => e.stopPropagation());
+  input.addEventListener('click', e => e.stopPropagation());
+  input.addEventListener('blur', () => finish(true));
+}
+
+async function deleteRecording(id) {
+  if (!confirm('确定删除这条录音？此操作不可恢复。')) return;
+  try {
+    const res = await fetch('/api/delete?id=' + encodeURIComponent(id), { method: 'POST' });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || ('HTTP ' + res.status)); }
+    if (currentId === id) showComposer();
+    await loadRecordings();
+    showToast('已删除', 'ok', 2500);
+  } catch (e) {
+    showToast('删除失败：' + e.message, 'err', 4000);
   }
 }
 

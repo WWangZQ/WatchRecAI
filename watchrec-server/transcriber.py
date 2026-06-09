@@ -144,6 +144,7 @@ def write_sidecar(audio_path: str, result: dict) -> Path:
 
     data = {
         "audio_file": audio.name,
+        "title": None,                                # 自定义标题（重命名用）
         "recorded_at": recorded_at,
         "duration_sec": result.get("duration_sec"),
         "language": result.get("language", ""),

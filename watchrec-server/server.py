@@ -357,6 +357,7 @@ async def api_recordings():
 
         results.append({
             "id": audio_id,
+            "title": data.get("title"),
             "date": data.get("recorded_at", "")[:10],
             "time": data.get("recorded_at", "")[11:19] if len(data.get("recorded_at", "")) > 11 else "",
             "duration_sec": data.get("duration_sec"),
@@ -496,6 +497,70 @@ def api_enrich(id: str = Query(...)):
     data["summary"] = summary
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"status": "ok", "full_text": full, "summary": summary}
+
+
+@app.post("/api/summarize")
+def api_summarize(id: str = Query(...)):
+    """仅重新生成「AI 总结」（基于现有全文，没有全文则用原文），回写边车。"""
+    from llm import is_configured, summarize
+
+    if not is_configured():
+        raise HTTPException(400, "LLM 未配置：请在 .env 填 LLM_BASE_URL / LLM_API_KEY")
+
+    data_dir = Path(LOCAL_DATA_DIR)
+    json_path = _safe_resolve(data_dir, id, ".json")
+    if not json_path.exists():
+        raise HTTPException(404, f"Recording not found: {id}")
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    text = (data.get("full_text") or data.get("transcript") or "").strip()
+    if not text:
+        raise HTTPException(400, "没有可总结的文本")
+
+    try:
+        summary = summarize(text)
+    except Exception as e:
+        raise HTTPException(502, f"AI 调用失败：{e}")
+
+    data["summary"] = summary
+    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok", "summary": summary}
+
+
+@app.post("/api/rename")
+async def api_rename(id: str = Query(...), request: Request = ...):
+    """给录音设置/清除自定义标题（写入边车 title 字段）。"""
+    data_dir = Path(LOCAL_DATA_DIR)
+    json_path = _safe_resolve(data_dir, id, ".json")
+    if not json_path.exists():
+        raise HTTPException(404, f"Recording not found: {id}")
+
+    body = await request.json()
+    title = (body.get("title") or "").strip()
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    data["title"] = title or None
+    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok", "title": data["title"]}
+
+
+@app.post("/api/delete")
+def api_delete(id: str = Query(...)):
+    """删除一条录音的音频与边车 JSON。"""
+    data_dir = Path(LOCAL_DATA_DIR)
+    audio_path = _safe_path(data_dir, id)
+    json_path = _safe_resolve(data_dir, id, ".json")
+
+    removed = []
+    for p in (audio_path, json_path):
+        if p.exists():
+            p.unlink()
+            removed.append(p.name)
+    if not removed:
+        raise HTTPException(404, f"Recording not found: {id}")
+
+    print(f"  🗑 已删除: {id}")
+    return {"status": "ok", "removed": removed}
 
 
 @app.get("/api/audio")
