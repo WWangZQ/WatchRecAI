@@ -368,13 +368,4 @@ JSON 内容：
 }
 ```
 
-### 批量补转已有文件
-
-如果已有上传但未转写的音频：
-
-```bash
-cd watchrec-server
-python transcribe_all.py
-```
-
-会扫描所有缺少 `.json` 的 `.m4a` 文件并逐个转写。
+> 电脑端轮询 VPS 时会自动转写所有缺少 `.json` 的音频，无需手动补转。

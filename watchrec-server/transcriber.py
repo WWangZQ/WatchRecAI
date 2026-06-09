@@ -1,22 +1,22 @@
 """
 FunASR SenseVoice-Small 转写模块。
 
-架构：单模型实例 + 单 worker 线程 + 队列驱动动态批处理。
-- 模型全局唯一，用 threading.Lock + 双重检查保证只加载一次。
-- worker 从 queue.Queue 取任务，攒批后调 model.generate(input=[...]) 并行推理。
+单模型实例（threading.Lock + 双重检查保证只加载一次），供 worker.py 的
+TranscribeWorker 线程调用。对外暴露：
+  - ensure_model_loaded() —— 启动时预加载
+  - transcribe_files(paths) —— 批量转写
+  - write_sidecar(path, result) —— 写 .json 边车文件
 """
 
 import json
 import logging
 import re
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
-from queue import Queue
 from zoneinfo import ZoneInfo
 
-from config import BATCH_SIZE_S, MAX_BATCH_FILES, TIMEZONE
+from config import BATCH_SIZE_S, TIMEZONE
 
 logger = logging.getLogger("transcriber")
 
@@ -56,7 +56,7 @@ def _get_model():
         return _model
 
 
-# ── 单文件转写（内部用）─────────────────────────────────────
+# ── 转写 ───────────────────────────────────────────────────
 
 def _transcribe_single(model, audio_path: str) -> dict:
     """转写单个文件，返回结果字典。"""
@@ -116,6 +116,24 @@ def _transcribe_batch(model, audio_paths: list[str]) -> list[dict]:
     return output
 
 
+def ensure_model_loaded():
+    """预加载模型（启动时调用，避免第一批音频卡在模型下载）。"""
+    _get_model()
+
+
+def transcribe_files(audio_paths: list[str]) -> list[dict]:
+    """
+    批量转写，返回与 audio_paths 等长的结果列表。
+    """
+    model = _get_model()
+    n = len(audio_paths)
+    if n == 0:
+        return []
+    if n == 1:
+        return [_transcribe_single(model, audio_paths[0])]
+    return _transcribe_batch(model, audio_paths)
+
+
 # ── 边车文件写入 ───────────────────────────────────────────
 
 def write_sidecar(audio_path: str, result: dict) -> Path:
@@ -136,171 +154,6 @@ def write_sidecar(audio_path: str, result: dict) -> Path:
 
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return json_path
-
-
-def has_sidecar(audio_path: str) -> bool:
-    """检查音频是否已有 .json 边车文件。"""
-    return Path(audio_path).with_suffix(".json").exists()
-
-
-# ── TranscribeWorker：单线程 + 队列 + 动态批处理 ──────────
-
-class TranscribeWorker:
-    """
-    常驻转写 worker。
-    - /upload 把文件路径 put 进队列后立刻返回。
-    - worker 阻塞等第一个任务，到达后非阻塞 drain 队列凑批，
-      一次性调 model.generate(input=batch) 批量推理。
-    - 每个文件各自写 .json 边车文件。
-    """
-
-    def __init__(self):
-        self._queue: Queue[str] = Queue()
-        self._thread: threading.Thread | None = None
-
-    def start(self):
-        """启动 worker 线程（服务启动时调一次）。"""
-        if self._thread is not None:
-            return
-        self._thread = threading.Thread(target=self._run, daemon=True, name="transcribe-worker")
-        self._thread.start()
-        print("  ✓ 转写 worker 已启动")
-
-    def submit(self, audio_path: str):
-        """提交一个转写任务（非阻塞）。"""
-        self._queue.put(audio_path)
-
-    def submit_batch(self, paths: list[str]):
-        """提交一批转写任务。"""
-        for p in paths:
-            self._queue.put(p)
-
-    def wait_idle(self, timeout: float | None = None):
-        """等待队列清空（用于 transcribe_all.py）。"""
-        self._queue.join()
-
-    def pending_count(self) -> int:
-        return self._queue.qsize()
-
-    # ── worker 主循环 ──────────────────────────────────────
-
-    def _run(self):
-        """常驻循环：阻塞等任务 → 凑批 → 批量推理 → 写结果 → 继续等。"""
-        # 首次循环前加载模型（一次性）
-        _get_model()
-
-        while True:
-            # 1. 阻塞等第一个任务
-            first = self._queue.get()
-            batch = [first]
-
-            # 2. 非阻塞 drain：把队列里现有的任务一次性取空（上限 MAX_BATCH_FILES）
-            while len(batch) < MAX_BATCH_FILES:
-                try:
-                    batch.append(self._queue.get_nowait())
-                except Exception:
-                    break
-
-            # 3. 过滤已有边车的文件
-            todo = [p for p in batch if not has_sidecar(p)]
-            skip_count = len(batch) - len(todo)
-
-            if not todo:
-                for _ in batch:
-                    self._queue.task_done()
-                continue
-
-            if skip_count:
-                print(f"  ⏭ 跳过 {skip_count} 个已有转写的文件")
-
-            # 4. 批量转写
-            names = [Path(p).name for p in todo]
-            n = len(todo)
-            print(f"  🎙️  转写批次: {n} 个文件 — {', '.join(names[:3])}{'...' if n > 3 else ''}")
-            logger.info(f"Batch transcribe: {n} files")
-
-            t0 = time.monotonic()
-            try:
-                if n == 1:
-                    results = [_transcribe_single(_model, todo[0])]
-                else:
-                    results = _transcribe_batch(_model, todo)
-
-                elapsed = time.monotonic() - t0
-
-                # 5. 逐文件写边车 + 打印
-                for i, (path, result) in enumerate(zip(todo, results)):
-                    write_sidecar(path, result)
-                    preview = result["transcript"][:50]
-                    suffix = "..." if len(result["transcript"]) > 50 else ""
-                    print(f"    ✓ [{i+1}/{n}] {Path(path).name} → \"{preview}{suffix}\"")
-
-                total_dur = sum(r.get("duration_sec", 0) for r in results)
-                speed = total_dur / elapsed if elapsed > 0 else 0
-                print(f"  ✓ 批次完成: {n} 个文件, {elapsed:.1f}s, "
-                      f"音频 {total_dur:.0f}s, RTF {speed:.1f}x")
-
-            except Exception as e:
-                elapsed = time.monotonic() - t0
-                print(f"  ✗ 批次转写失败 ({elapsed:.1f}s): {e}")
-                logger.error(f"Batch transcribe failed: {e}", exc_info=True)
-
-            finally:
-                # 6. 标记所有任务完成
-                for _ in batch:
-                    self._queue.task_done()
-
-
-# ── 模块级单例 ─────────────────────────────────────────────
-
-_worker: TranscribeWorker | None = None
-
-
-def get_worker() -> TranscribeWorker:
-    """获取全局 worker 单例。"""
-    global _worker
-    if _worker is None:
-        _worker = TranscribeWorker()
-    return _worker
-
-
-def init_worker():
-    """启动 worker（FastAPI lifespan 调用）。"""
-    get_worker().start()
-
-
-def submit(audio_path: str):
-    """提交单个文件到转写队列。"""
-    get_worker().submit(audio_path)
-
-
-def submit_batch(paths: list[str]):
-    """提交一批文件到转写队列。"""
-    get_worker().submit_batch(paths)
-
-
-def wait_idle(timeout: float | None = None):
-    """等待队列清空。"""
-    get_worker().wait_idle(timeout)
-
-
-def ensure_model_loaded():
-    """预加载模型（启动时调用，避免第一批音频卡在模型下载）。"""
-    _get_model()
-
-
-def transcribe_files(audio_paths: list[str]) -> list[dict]:
-    """
-    直接批量转写（不走 worker 队列，供 poller 等外部驱动方调用）。
-    返回与 audio_paths 等长的结果列表。
-    """
-    model = _get_model()
-    n = len(audio_paths)
-    if n == 0:
-        return []
-    if n == 1:
-        return [_transcribe_single(model, audio_paths[0])]
-    return _transcribe_batch(model, audio_paths)
 
 
 # ── 辅助函数 ──────────────────────────────────────────────
