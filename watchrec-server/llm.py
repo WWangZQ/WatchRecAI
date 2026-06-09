@@ -28,6 +28,12 @@ _SUMMARY_SYS = (
     "用简短的分点，突出重点，不要复述全文。只输出总结本身。"
 )
 
+_HEADLINE_SYS = (
+    "你是给语音笔记起标题的助手。根据内容起一个简短的中文标题，6 到 14 个字，"
+    "概括主题，像聊天记录的标题那样。"
+    "不要标点符号、不要引号、不要书名号，只输出标题本身。"
+)
+
 
 def is_configured() -> bool:
     c = get_llm()
@@ -74,8 +80,23 @@ def summarize(full_text: str) -> str | None:
     return _chat(_SUMMARY_SYS, text)
 
 
-def enrich(transcript: str) -> tuple[str | None, str | None]:
-    """一步到位：返回 (全文, 总结)。任一步失败会向上抛异常。"""
+def headline(text: str) -> str | None:
+    """内容 → 简短标题（6~14 字，无标点）。"""
+    t = (text or "").strip()
+    if not t:
+        return None
+    # max_tokens 给足：mimo 等推理模型会先消耗 token 思考，太小会导致 content 为空
+    h = _chat(_HEADLINE_SYS, t[:2000], max_tokens=1024, temperature=0.3)
+    if not h:
+        return None
+    # 清理：取首行，去掉引号/书名号/首尾标点
+    h = h.splitlines()[0].strip().strip("「」『』“”\"'《》 。.,，！!？?")
+    return h[:20] or None
+
+
+def enrich(transcript: str) -> tuple[str | None, str | None, str | None]:
+    """一步到位：返回 (全文, 总结, 短标题)。任一步失败会向上抛异常。"""
     full = denoise(transcript)
     summary = summarize(full) if full else None
-    return full, summary
+    head = headline(summary or full) if (summary or full) else None
+    return full, summary, head

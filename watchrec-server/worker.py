@@ -163,8 +163,8 @@ class TranscribeWorker:
             name = Path(path).name
             set_state(transcribing=f"AI 整理 {name}")
             try:
-                full, summary = enrich(result["transcript"])
-                update_sidecar(path, {"full_text": full, "summary": summary})
-                print(f"    ✎ AI 整理完成: {name}")
+                full, summary, head = enrich(result["transcript"])
+                update_sidecar(path, {"full_text": full, "summary": summary, "headline": head})
+                print(f"    ✎ AI 整理完成: {name}" + (f" — 「{head}」" if head else ""))
             except Exception as e:
                 print(f"    ✗ AI 整理失败: {name} — {e}")

@@ -152,6 +152,7 @@ def write_sidecar(audio_path: str, result: dict) -> Path:
         "raw": result.get("raw", ""),                 # 原始标记文本
         "full_text": result.get("full_text"),         # 全文：AI 去噪（待生成）
         "summary": result.get("summary"),             # AI 总结（待生成）
+        "headline": result.get("headline"),           # 短标题（待生成）
         "transcribed_at": datetime.now(_tz).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -174,6 +175,7 @@ def write_failed_sidecar(audio_path: str, error: str) -> Path:
         "raw": "",
         "full_text": None,
         "summary": None,
+        "headline": None,
         "error": first,
         "transcribed_at": datetime.now(_tz).strftime("%Y-%m-%d %H:%M:%S"),
     }

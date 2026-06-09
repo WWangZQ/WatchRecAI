@@ -356,10 +356,13 @@ async def api_recordings():
         audio_file = data.get("audio_file") or (json_path.stem + ".m4a")
         audio_id = audio_file if parent in ("", ".") else f"{parent}/{audio_file}"
 
-        # 侧栏副标题优先用 AI 总结（像 Claude chat 的标题），其次全文/原文
-        text = (data.get("summary") or data.get("full_text") or data.get("transcript") or "").strip()
-        text = text.replace("\n", " ")
-        snippet = (text[:80] + "...") if len(text) > 80 else text
+        # 侧栏副标题：优先用 AI 短标题（像 Claude chat 的对话名）；没有再回退内容预览
+        headline = (data.get("headline") or "").strip()
+        if headline:
+            snippet = headline
+        else:
+            text = (data.get("summary") or data.get("full_text") or data.get("transcript") or "").strip().replace("\n", " ")
+            snippet = (text[:80] + "...") if len(text) > 80 else text
 
         results.append({
             "id": audio_id,
@@ -495,20 +498,21 @@ def api_enrich(id: str = Query(...)):
         raise HTTPException(400, "该录音没有原文，无法生成")
 
     try:
-        full, summary = enrich(transcript)
+        full, summary, head = enrich(transcript)
     except Exception as e:
         raise HTTPException(502, f"AI 调用失败：{e}")
 
     data["full_text"] = full
     data["summary"] = summary
+    data["headline"] = head
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"status": "ok", "full_text": full, "summary": summary}
+    return {"status": "ok", "full_text": full, "summary": summary, "headline": head}
 
 
 @app.post("/api/summarize")
 def api_summarize(id: str = Query(...)):
-    """仅重新生成「AI 总结」（基于现有全文，没有全文则用原文），回写边车。"""
-    from llm import is_configured, summarize
+    """重新生成「AI 总结」和「短标题」（基于现有全文，没有全文则用原文），回写边车。"""
+    from llm import headline, is_configured, summarize
 
     if not is_configured():
         raise HTTPException(400, "LLM 未配置：请在 .env 填 LLM_BASE_URL / LLM_API_KEY")
@@ -525,12 +529,14 @@ def api_summarize(id: str = Query(...)):
 
     try:
         summary = summarize(text)
+        head = headline(summary or text)
     except Exception as e:
         raise HTTPException(502, f"AI 调用失败：{e}")
 
     data["summary"] = summary
+    data["headline"] = head
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"status": "ok", "summary": summary}
+    return {"status": "ok", "summary": summary, "headline": head}
 
 
 @app.post("/api/rename")
