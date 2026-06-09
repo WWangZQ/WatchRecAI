@@ -258,6 +258,27 @@ python server.py
 
 或使用一键脚本：`./start.sh`
 
+### 桌面双击启动（推荐）
+
+不想敲命令行 + 手动开网页，可用桌面入口 `desktop.py`：双击即在一个进程里
+拉起服务（局域网接收 + VPS 轮询 + GPU 转写）并弹出一个**无地址栏的独立应用窗口**
+显示查看界面，无黑色命令行窗口。服务状态/转写进度/日志直接显示在窗口内
+（右上角状态点 + 「日志」面板），关闭窗口即停止服务。
+
+```bash
+# 直接跑（会弹应用窗口）
+python desktop.py
+```
+
+实现要点：
+
+- 窗口宿主优先用 **Chrome 的 `--app` 模式**（本机实测稳定留窗），其次 Edge，
+  都没有则回退默认浏览器。需要本机装有 Chrome。
+- 用 conda `ics` 环境的 **`pythonw`** 静默启动（无控制台）。
+- `WatchRec.vbs` 是仓库内的静默启动器；桌面快捷方式可直接指向
+  `pythonw.exe desktop.py`（工作目录设为 `watchrec-server`）。
+- 状态/日志接口：`GET /api/status`、`GET /api/logs?since=<id>`。
+
 ### 配置手表端服务器地址
 
 修改 `watchrec-watch/app/src/main/java/com/watchrec/app/uploader/Config.kt`：

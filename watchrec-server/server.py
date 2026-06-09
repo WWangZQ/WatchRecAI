@@ -31,6 +31,7 @@ from config import (
 )
 from worker import TranscribeWorker
 from vps_client import VPSClient
+from runtime_state import get_logs, get_state, set_state
 
 tz = ZoneInfo(TIMEZONE)
 
@@ -172,6 +173,7 @@ def _poller_loop():
 
 def _poll_once(data_dir: str):
     pending = _vps.get_pending()
+    set_state(last_poll_at=time.time(), pending=len(pending))
     if not pending:
         return
 
@@ -239,6 +241,7 @@ async def lifespan(app: FastAPI):
     try:
         ip = detect_lan_ip()
         _vps.report_lan_info(ip, 8765)
+        set_state(lan_ip=ip)
         print(f"  ✓ LAN IP 已上报: {ip}:8765")
     except Exception as e:
         print(f"  ⚠ 首次 IP 上报失败: {e}")
@@ -308,6 +311,18 @@ async def viewer_index():
     if not html_path.exists():
         raise HTTPException(404, "viewer.html not found")
     return FileResponse(str(html_path), media_type="text/html")
+
+
+@app.get("/api/status")
+async def api_status():
+    """服务运行状态（供桌面窗口状态栏展示）。"""
+    return get_state()
+
+
+@app.get("/api/logs")
+async def api_logs(since: int = Query(0)):
+    """增量拉取服务日志（供桌面窗口日志面板展示）。"""
+    return get_logs(since)
 
 
 @app.get("/api/recordings")

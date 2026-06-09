@@ -10,6 +10,7 @@ from pathlib import Path
 from queue import Queue
 
 from transcriber import transcribe_files, write_sidecar
+from runtime_state import set_state
 
 
 class TranscribeWorker:
@@ -43,6 +44,7 @@ class TranscribeWorker:
         # 模型在 worker 线程内加载，不阻塞 uvicorn 启动
         from transcriber import ensure_model_loaded
         ensure_model_loaded()
+        set_state(model_loaded=True)
 
         while not self._stop_flag:
             # 1. 阻塞等第一个任务
@@ -85,6 +87,7 @@ class TranscribeWorker:
 
             import time
             t0 = time.monotonic()
+            set_state(transcribing=(names[0] if n == 1 else f"{n} 个文件"))
             try:
                 results = transcribe_files(todo)
                 elapsed = time.monotonic() - t0
@@ -104,5 +107,6 @@ class TranscribeWorker:
                 print(f"  ✗ 批次转写失败: {e}")
 
             finally:
+                set_state(transcribing=None)
                 for _ in batch:
                     self._queue.task_done()
