@@ -1,13 +1,15 @@
 *.iml
 .gradle
-/local.properties
 /.idea
 .DS_Store
-/build
-/app/build
 /captures
 .externalNativeBuild
 .cxx
+
+# 手表端 Android 构建产物
+watchrec-watch/local.properties
+watchrec-watch/build
+watchrec-watch/app/build
 
 # Python
 __pycache__/

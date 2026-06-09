@@ -77,9 +77,12 @@ Android SDK 路径需通过以下方式之一告知项目：
 
 ## 四、编译安装
 
+> 手表端 Android 工程位于 `watchrec-watch/`，以下命令均在该目录下执行。
+
 ### 方式 A：使用一键脚本（推荐）
 
 ```bash
+cd watchrec-watch
 chmod +x install.sh
 ./install.sh
 ```
@@ -89,6 +92,8 @@ chmod +x install.sh
 ### 方式 B：手动编译安装
 
 ```bash
+cd watchrec-watch
+
 # 编译 debug APK
 ./gradlew assembleDebug
 
@@ -190,48 +195,50 @@ adb logcat -s AudioPlayer
 
 ## 六、项目结构
 
+三端各自独立成目录：
+
 ```
-WatchRec/
-├── install.sh                              # 一键编译安装
+WatchRecApp/
 ├── README.md
-├── build.gradle.kts                        # 根构建脚本
-├── settings.gradle.kts
-├── gradle.properties
-├── local.properties                        # SDK 路径（自动生成）
-├── gradlew / gradlew.bat
-├── watchrec-server/                        # 电脑端音频接收服务
-│   ├── server.py                           # FastAPI 主服务
-│   ├── config.py                           # 配置（端口、存储路径）
-│   ├── requirements.txt
-│   ├── start.sh                            # 一键启动
-│   └── uploads/                            # 接收到的音频存放目录
-└── app/
-    ├── build.gradle.kts                    # 模块构建脚本
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── res/                            # 资源文件
-        │   ├── drawable/                   # 图标、按钮背景
-        │   ├── layout/                     # 布局文件
-        │   └── values/                     # 颜色、字符串、尺寸、主题
-        └── java/com/watchrec/app/
-            ├── MainActivity.kt             # 录音主界面
-            ├── RecordingListActivity.kt    # 录音列表 + 播放
-            ├── RecordingService.kt         # 前台录音服务
-            ├── adapter/
-            │   └── RecordingAdapter.kt     # RecyclerView 适配器
-            ├── model/
-            │   └── RecordingItem.kt        # 数据模型
-            ├── player/
-            │   └── AudioPlayer.kt          # MediaPlayer 封装
-            ├── recorder/
-            │   └── AudioRecorder.kt        # 文件命名工具
-            ├── uploader/
-            │   ├── Config.kt               # 服务器地址配置
-            │   └── AudioUploader.kt        # HTTP 上传逻辑
-            └── util/
-                ├── FileUtils.kt            # 文件操作
-                ├── TimeUtils.kt            # 时间格式化
-                └── SwipeDismissFrameLayout.kt
+├── .gitignore
+│
+├── watchrec-watch/                         # 手表端（Android 工程）
+│   ├── install.sh                          # 一键编译安装
+│   ├── build.gradle.kts                    # 根构建脚本
+│   ├── settings.gradle.kts
+│   ├── gradle.properties
+│   ├── local.properties                    # SDK 路径（自动生成）
+│   ├── gradlew / gradlew.bat
+│   ├── server.crt                          # VPS 自签名证书（钉扎用）
+│   └── app/
+│       ├── build.gradle.kts                # 模块构建脚本
+│       └── src/main/
+│           ├── AndroidManifest.xml
+│           ├── res/                        # 资源文件（drawable/layout/values）
+│           └── java/com/watchrec/app/
+│               ├── MainActivity.kt         # 录音主界面
+│               ├── RecordingListActivity.kt# 录音列表 + 播放
+│               ├── RecordingService.kt     # 前台录音服务
+│               ├── adapter/                # RecyclerView 适配器
+│               ├── model/                  # 数据模型
+│               ├── player/                 # MediaPlayer 封装
+│               ├── recorder/               # 文件命名工具
+│               ├── uploader/               # 上传逻辑 + 选路 + SSL
+│               └── util/                   # 文件/时间/手势工具
+│
+├── watchrec-vps/                           # VPS 端（公网中转）
+│   ├── server.py                           # 接收上传 + 供电脑端轮询
+│   ├── config.py
+│   └── requirements.txt
+│
+└── watchrec-server/                        # 电脑端（轮询 VPS + 本地转写）
+    ├── server.py                           # FastAPI 主服务
+    ├── vps_client.py                       # 从 VPS 拉取音频
+    ├── transcriber.py                      # FunASR 转写
+    ├── config.py                           # 配置（端口、存储路径）
+    ├── requirements.txt
+    ├── start.sh                            # 一键启动
+    └── uploads/                            # 接收到的音频存放目录
 ```
 
 ---
@@ -253,7 +260,7 @@ python server.py
 
 ### 配置手表端服务器地址
 
-修改 `app/src/main/java/com/watchrec/app/uploader/Config.kt`：
+修改 `watchrec-watch/app/src/main/java/com/watchrec/app/uploader/Config.kt`：
 
 ```kotlin
 const val SERVER_URL = "http://10.129.35.132:8765"  // 改为你的电脑局域网 IP
