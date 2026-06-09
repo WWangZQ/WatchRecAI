@@ -352,7 +352,9 @@ async def api_recordings():
         audio_file = data.get("audio_file") or (json_path.stem + ".m4a")
         audio_id = audio_file if parent in ("", ".") else f"{parent}/{audio_file}"
 
-        text = data.get("full_text") or data.get("transcript") or ""
+        # 侧栏副标题优先用 AI 总结（像 Claude chat 的标题），其次全文/原文
+        text = (data.get("summary") or data.get("full_text") or data.get("transcript") or "").strip()
+        text = text.replace("\n", " ")
         snippet = (text[:80] + "...") if len(text) > 80 else text
 
         results.append({
