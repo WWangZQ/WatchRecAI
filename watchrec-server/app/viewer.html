@@ -969,9 +969,10 @@ async function selectRecording(id) {
   const detail = $('#detail');
   detail.innerHTML = '<div class="empty-state">加载中…</div>';
 
+  let data = null;
   try {
     const res = await fetch('/api/recording?id=' + encodeURIComponent(id));
-    const data = await res.json();
+    data = await res.json();
     renderDetail(data);
   } catch (e) {
     detail.innerHTML = '<div class="empty-state">加载失败</div>';
