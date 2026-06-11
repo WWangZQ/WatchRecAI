@@ -67,3 +67,28 @@ def get_state() -> dict:
     s = dict(STATE)
     s["uptime_sec"] = int(time.time() - s["started_at"])
     return s
+
+
+# ── AI 整理任务进度 ──────────────────────────────────────
+# enrich（去噪+总结+标题）耗时可达数分钟，改成后台任务跑，前端轮询这里取进度。
+# 每个录音 id 一条：{phase, done, total, status: running|done|error, error}
+
+_enrich_lock = threading.Lock()
+_enrich: dict = {}
+
+
+def enrich_set(rid: str, **kw):
+    with _enrich_lock:
+        job = _enrich.setdefault(rid, {})
+        job.update(kw)
+        job["updated_at"] = time.time()
+
+
+def enrich_get(rid: str) -> dict:
+    with _enrich_lock:
+        return dict(_enrich.get(rid) or {})
+
+
+def enrich_running(rid: str) -> bool:
+    with _enrich_lock:
+        return (_enrich.get(rid) or {}).get("status") == "running"

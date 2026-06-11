@@ -149,14 +149,22 @@ def _denoise_chunk(prev: str, core: str, nxt: str) -> str:
     return _strip_output(_chat(_DENOISE_CHUNK_SYS, "\n".join(parts)))
 
 
-def denoise(transcript: str) -> str | None:
-    """原文逐字稿 → 通顺可读的全文（长文本：小块 + 上下文 + 并行清洗）。"""
+def denoise(transcript: str, progress=None) -> str | None:
+    """原文逐字稿 → 通顺可读的全文（长文本：小块 + 上下文 + 并行清洗）。
+
+    progress(done, total): 可选回调，每完成一块调用一次，用于上报进度。
+    """
     text = _strip_input((transcript or "").strip())
     if not text:
         return None
     chunks = _split_chunks(text, _CHUNK_TARGET)
     if len(chunks) == 1:
-        return _strip_output(_chat(_DENOISE_SYS, text))
+        if progress:
+            progress(0, 1)
+        out = _strip_output(_chat(_DENOISE_SYS, text))
+        if progress:
+            progress(1, 1)
+        return out
 
     n = len(chunks)
     jobs = []
@@ -166,9 +174,28 @@ def denoise(transcript: str) -> str | None:
         jobs.append((prev, ch, nxt))
 
     print(f"    … AI 去噪：{n} 段，并发 {_DENOISE_CONCURRENCY}")
+    if progress:
+        progress(0, n)
+
+    import threading
     from concurrent.futures import ThreadPoolExecutor
+
+    parts: list = [None] * n
+    done = 0
+    lock = threading.Lock()
+
+    def run(i):
+        nonlocal done
+        res = _denoise_chunk(*jobs[i])
+        with lock:
+            parts[i] = res
+            done += 1
+            cur = done
+        if progress:
+            progress(cur, n)
+
     with ThreadPoolExecutor(max_workers=_DENOISE_CONCURRENCY) as ex:
-        parts = list(ex.map(lambda j: _denoise_chunk(*j), jobs))  # map 保序
+        list(ex.map(run, range(n)))
     return "\n\n".join(p for p in parts if p)
 
 
@@ -195,9 +222,16 @@ def headline(text: str) -> str | None:
     return h[:20] or None
 
 
-def enrich(transcript: str) -> tuple[str | None, str | None, str | None]:
-    """一步到位：返回 (全文, 总结, 短标题)。任一步失败会向上抛异常。"""
-    full = denoise(transcript)
+def enrich(transcript: str, progress=None) -> tuple[str | None, str | None, str | None]:
+    """一步到位：返回 (全文, 总结, 短标题)。任一步失败会向上抛异常。
+
+    progress(phase, done, total): 可选回调，phase ∈ {"denoise","summarize","headline"}。
+    """
+    full = denoise(transcript, progress=(lambda d, t: progress("denoise", d, t)) if progress else None)
+    if progress:
+        progress("summarize", 0, 1)
     summary = summarize(full) if full else None
+    if progress:
+        progress("headline", 0, 1)
     head = headline(summary or full) if (summary or full) else None
     return full, summary, head

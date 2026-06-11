@@ -18,6 +18,7 @@ import socket
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 # Windows 中文控制台默认 GBK，emoji 日志会 UnicodeEncodeError；尽力切到 UTF-8。
@@ -40,10 +41,30 @@ from config import (
 )
 from worker import TranscribeWorker
 from vps_client import VPSClient
-from runtime_state import get_logs, get_state, set_state
+from runtime_state import (
+    get_logs,
+    get_state,
+    set_state,
+    enrich_set,
+    enrich_get,
+    enrich_running,
+)
 from settings import get_llm, save_llm
 
 tz = ZoneInfo(TIMEZONE)
+
+# Windows ProactorEventLoop 在浏览器掐断空闲连接时会刷一条 ConnectionResetError
+# (WinError 10054)，纯噪声、无害。过滤掉，免得日志面板看着像出错。
+import logging
+
+
+class _DropConnReset(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return "_call_connection_lost" not in msg and "WinError 10054" not in msg
+
+
+logging.getLogger("asyncio").addFilter(_DropConnReset())
 
 # 全局共享
 _worker = TranscribeWorker()
@@ -478,35 +499,62 @@ async def api_save_settings(request: Request):
     return _settings_public(c)
 
 
-# 注意：同步 def → FastAPI 在线程池跑，LLM 网络阻塞不卡事件循环
+# enrich（去噪+总结）耗时可达数分钟，放后台线程跑，立即返回；前端轮询 /api/enrich/status。
+# 单线程池 → 整条录音的 enrich 串行排队（内部 denoise 已并发 4），避免叠加打爆 API 限流。
+_ENRICH_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="enrich")
+
+
+def _run_enrich(rid: str, json_path: Path, transcript: str):
+    from llm import enrich
+
+    def progress(phase, done, total):
+        label = {"denoise": "AI 去噪", "summarize": "AI 总结", "headline": "起标题"}.get(phase, phase)
+        enrich_set(rid, status="running", phase=label, done=done, total=total)
+
+    try:
+        full, summary, head = enrich(transcript, progress=progress)
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        data["full_text"] = full
+        data["summary"] = summary
+        data["headline"] = head
+        json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        enrich_set(rid, status="done", phase="完成", error=None)
+        print(f"  ✓ AI 整理完成：{rid}")
+    except Exception as e:
+        enrich_set(rid, status="error", error=str(e))
+        print(f"  ✗ AI 整理失败：{rid} — {e}")
+
+
 @app.post("/api/enrich")
 def api_enrich(id: str = Query(...)):
-    """对单条录音重新生成「全文」（AI 去噪）和「AI 总结」，回写边车。"""
-    from llm import is_configured, enrich
+    """启动「全文(去噪)+总结+标题」后台任务，立即返回；进度见 /api/enrich/status。"""
+    from llm import is_configured
 
     if not is_configured():
-        raise HTTPException(400, "LLM 未配置：请在 .env 填 LLM_BASE_URL / LLM_API_KEY")
+        raise HTTPException(400, "LLM 未配置：请在设置里填 LLM_BASE_URL / LLM_API_KEY")
 
     data_dir = Path(LOCAL_DATA_DIR)
     json_path = _safe_resolve(data_dir, id, ".json")
     if not json_path.exists():
         raise HTTPException(404, f"Recording not found: {id}")
 
+    if enrich_running(id):
+        return {"status": "running"}  # 已在跑，前端继续轮询即可
+
     data = json.loads(json_path.read_text(encoding="utf-8"))
     transcript = data.get("transcript") or ""
     if not transcript.strip():
         raise HTTPException(400, "该录音没有原文，无法生成")
 
-    try:
-        full, summary, head = enrich(transcript)
-    except Exception as e:
-        raise HTTPException(502, f"AI 调用失败：{e}")
+    enrich_set(id, status="running", phase="排队中", done=0, total=0, error=None)
+    _ENRICH_POOL.submit(_run_enrich, id, json_path, transcript)
+    return {"status": "started"}
 
-    data["full_text"] = full
-    data["summary"] = summary
-    data["headline"] = head
-    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"status": "ok", "full_text": full, "summary": summary, "headline": head}
+
+@app.get("/api/enrich/status")
+def api_enrich_status(id: str = Query(...)):
+    """查询某条录音的 AI 整理进度。"""
+    return enrich_get(id) or {"status": "idle"}
 
 
 @app.post("/api/summarize")

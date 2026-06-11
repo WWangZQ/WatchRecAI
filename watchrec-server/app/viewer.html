@@ -741,6 +741,22 @@ details[open] summary { margin-bottom: 12px; }
   flex-shrink: 0;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
+.enrich-status {
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--tertiary);
+  white-space: nowrap;
+}
+.enrich-status:empty { display: none; }
+.enrich-status.busy { color: var(--accent); }
+.enrich-status.busy::before {
+  content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px;
+  border-radius: 50%; background: var(--accent); vertical-align: middle;
+  animation: pulse 1s ease-in-out infinite;
+}
+.enrich-status.err { color: #b3402f; }
+@keyframes pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
 .retry-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
 .retry-btn:disabled { opacity: 0.6; cursor: default; }
 .retry-btn svg { transition: transform 0.2s; }
@@ -1015,7 +1031,7 @@ function renderDetail(data) {
 
   // 全文（原文 → AI 去噪整理）
   const fullAction = fullText ? retryBtn('/api/enrich', '重新生成') : '';
-  html += `<div class="card transcript-card"><div class="card-head"><h3>全文</h3>${fullAction}</div>`;
+  html += `<div class="card transcript-card"><div class="card-head"><h3>全文</h3><span class="enrich-status" id="enrichStatus"></span>${fullAction}</div>`;
   if (fullText) {
     fullText.split(/\n+/).filter(Boolean).forEach(p => { html += `<p>${esc(p)}</p>`; });
   } else {
@@ -1045,23 +1061,68 @@ function renderDetail(data) {
   </details>`;
 
   detail.innerHTML = html;
+  resumeEnrich(currentId);  // 若后台仍在整理，接续显示进度
 }
 
-async function enrichCurrent() {
-  if (!currentId) return;
+// AI 整理（去噪+总结）走后台任务 + 轮询进度：长录音不怕连接被掐，能看到真实进度。
+let _enrichTimer = null;
+
+function setEnrichStatus(text, kind) {
+  const el = $('#enrichStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'enrich-status' + (kind ? ' ' + kind : '');
+}
+
+function enrichCurrent() { if (currentId) startEnrich(currentId); }
+
+async function startEnrich(id) {
   const btn = $('#genBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'AI 生成中…（长录音需数分钟）'; }
+  if (btn) btn.disabled = true;
+  setEnrichStatus('正在启动…', 'busy');
   try {
-    const res = await fetch('/api/enrich?id=' + encodeURIComponent(currentId), { method: 'POST' });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || ('HTTP ' + res.status));
-    }
-    await selectRecording(currentId);  // 重新渲染详情
-    loadRecordings();                  // 刷新侧栏摘要
+    const res = await fetch('/api/enrich?id=' + encodeURIComponent(id), { method: 'POST' });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || ('HTTP ' + res.status)); }
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = '生成失败：' + e.message + '（点此重试）'; }
+    setEnrichStatus('启动失败：' + e.message, 'err');
+    if (btn) btn.disabled = false;
+    return;
   }
+  pollEnrich(id);
+}
+
+function pollEnrich(id) {
+  clearTimeout(_enrichTimer);
+  const tick = async () => {
+    if (currentId !== id) return;  // 已切到别的录音，停止轮询
+    let j;
+    try {
+      const r = await fetch('/api/enrich/status?id=' + encodeURIComponent(id));
+      j = await r.json();
+    } catch { _enrichTimer = setTimeout(tick, 2000); return; }
+    if (j.status === 'running') {
+      const prog = j.total ? ` ${j.done}/${j.total} 段` : '…';
+      setEnrichStatus((j.phase || 'AI 整理') + prog, 'busy');
+      _enrichTimer = setTimeout(tick, 1500);
+    } else if (j.status === 'done') {
+      setEnrichStatus('', '');
+      await selectRecording(id);  // 拉回最新全文/总结并重渲染
+      loadRecordings();
+    } else if (j.status === 'error') {
+      setEnrichStatus('生成失败：' + (j.error || '未知错误'), 'err');
+      const btn = $('#genBtn'); if (btn) btn.disabled = false;
+    }
+  };
+  tick();
+}
+
+// 详情渲染后调用：若该录音的 AI 整理仍在后台跑，自动接续显示进度。
+async function resumeEnrich(id) {
+  try {
+    const r = await fetch('/api/enrich/status?id=' + encodeURIComponent(id));
+    const j = await r.json();
+    if (j.status === 'running') pollEnrich(id);
+  } catch {}
 }
 
 // ── 编辑原文（修正敏感词/错误转录）──────────────
@@ -1111,6 +1172,8 @@ function retryBtn(endpoint, label) {
 
 async function aiRetry(endpoint, ev) {
   if (!currentId) return;
+  // 全文重新生成 = enrich 后台任务，走轮询进度，别走会被掐断的长请求
+  if (endpoint === '/api/enrich') { startEnrich(currentId); return; }
   const btn = ev.currentTarget;
   btn.classList.add('spin');
   btn.disabled = true;
