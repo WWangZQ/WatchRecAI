@@ -539,6 +539,25 @@ def api_summarize(id: str = Query(...)):
     return {"status": "ok", "summary": summary, "headline": head}
 
 
+@app.post("/api/transcript")
+async def api_update_transcript(id: str = Query(...), request: Request = ...):
+    """保存人工修改后的原文（修正敏感词/错字），回写边车。全文/总结不动，由用户自行重新生成。"""
+    data_dir = Path(LOCAL_DATA_DIR)
+    json_path = _safe_resolve(data_dir, id, ".json")
+    if not json_path.exists():
+        raise HTTPException(404, f"Recording not found: {id}")
+
+    body = await request.json()
+    transcript = body.get("transcript")
+    if not isinstance(transcript, str):
+        raise HTTPException(400, "transcript 字段缺失")
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    data["transcript"] = transcript.strip()
+    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok"}
+
+
 @app.post("/api/rename")
 async def api_rename(id: str = Query(...), request: Request = ...):
     """给录音设置/清除自定义标题（写入边车 title 字段）。"""

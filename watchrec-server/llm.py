@@ -9,6 +9,8 @@ AI 整理：调用 OpenAI 兼容的在线 API。
 未配置时 is_configured() 返回 False，调用方应跳过整条 AI 链路。
 """
 
+import re
+
 import requests
 
 from settings import get_llm
@@ -72,12 +74,48 @@ def _chat(system: str, user: str, max_tokens: int = MAX_TOKENS, temperature: flo
     return resp.json()["choices"][0]["message"]["content"].strip()
 
 
+# 长逐字稿分段去噪：整段重写时模型只认真改开头、后面照抄（长文重写退化），
+# 切成 ~2500 字的句子边界块逐段清洗，每段质量一致。
+_CHUNK_TARGET = 2500
+
+
+def _split_chunks(text: str, target: int = _CHUNK_TARGET) -> list[str]:
+    """按句子边界切块，每块约 target 字；无标点的超长片段硬切。"""
+    pieces = re.split(r"(?<=[。！？!?\n])", text)
+    chunks: list[str] = []
+    buf = ""
+    for p in pieces:
+        while len(p) > target:  # 罕见：单句超长，硬切
+            if buf:
+                chunks.append(buf)
+                buf = ""
+            chunks.append(p[:target])
+            p = p[target:]
+        if buf and len(buf) + len(p) > target:
+            chunks.append(buf)
+            buf = p
+        else:
+            buf += p
+    if buf.strip():
+        chunks.append(buf)
+    return chunks
+
+
 def denoise(transcript: str) -> str | None:
-    """原文逐字稿 → 通顺可读的全文。"""
+    """原文逐字稿 → 通顺可读的全文（长文本分段清洗）。"""
     text = (transcript or "").strip()
     if not text:
         return None
-    return _chat(_DENOISE_SYS, text)
+    chunks = _split_chunks(text)
+    if len(chunks) == 1:
+        return _chat(_DENOISE_SYS, text)
+
+    parts = []
+    n = len(chunks)
+    for i, ch in enumerate(chunks):
+        print(f"    … AI 去噪分段 {i + 1}/{n}")
+        parts.append(_chat(_DENOISE_SYS, ch))
+    return "\n\n".join(p for p in parts if p)
 
 
 def summarize(full_text: str) -> str | None:
