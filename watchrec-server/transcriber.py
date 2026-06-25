@@ -10,11 +10,15 @@ TranscribeWorker 线程调用。对外暴露：
 
 import json
 import logging
+import os
 import re
 import threading
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+# 减少长音频转写时的显存碎片（必须在 torch 初始化 CUDA 上下文之前设置）。
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 from config import BATCH_SIZE_S, TIMEZONE
 
@@ -58,24 +62,57 @@ def _get_model():
 
 # ── 转写 ───────────────────────────────────────────────────
 
+# 单批显存随 batch_size_s 增长；长音频或显存碎片化时一档可能 OOM，逐级缩小重试。
+_BATCH_FALLBACKS = [bs for bs in (BATCH_SIZE_S, 120, 60, 30) if bs <= BATCH_SIZE_S] or [BATCH_SIZE_S]
+
+
+def _empty_cuda_cache():
+    """把 PyTorch 缓存的显存块还给驱动，缓解跨文件累积/碎片。无 CUDA 时静默跳过。"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _is_oom(e: Exception) -> bool:
+    return "out of memory" in str(e).lower()
+
+
 def _transcribe_single(model, audio_path: str) -> dict:
-    """转写单个文件，返回结果字典。"""
+    """转写单个文件，返回结果字典。OOM 时清显存并逐级缩小 batch 重试。"""
     from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
     path = Path(audio_path)
-    res = model.generate(
-        input=str(path),
-        cache={},
-        language="auto",
-        use_itn=True,
-        batch_size_s=BATCH_SIZE_S,
-        merge_vad=True,
-        merge_length_s=15,
-    )
+    _empty_cuda_cache()  # 开工前先腾出最大可用显存
+
+    res = None
+    for i, bs in enumerate(_BATCH_FALLBACKS):
+        try:
+            res = model.generate(
+                input=str(path),
+                cache={},
+                language="auto",
+                use_itn=True,
+                batch_size_s=bs,
+                merge_vad=True,
+                merge_length_s=15,
+            )
+            break
+        except RuntimeError as e:
+            if not _is_oom(e) or i == len(_BATCH_FALLBACKS) - 1:
+                _empty_cuda_cache()
+                raise
+            nxt = _BATCH_FALLBACKS[i + 1]
+            print(f"  ⚠ 显存不足(batch_size_s={bs})，清缓存后改用 {nxt}s 重试…")
+            logger.warning("CUDA OOM at batch_size_s=%s, retry with %s", bs, nxt)
+            _empty_cuda_cache()
 
     raw_text = res[0]["text"]
     clean_text = rich_transcription_postprocess(raw_text)
     language = res[0].get("language", "unknown")
+    _empty_cuda_cache()  # 收尾释放，给下一条留干净显存
 
     return {
         "transcript": clean_text,
@@ -92,6 +129,7 @@ def _transcribe_batch(model, audio_paths: list[str]) -> list[dict]:
     """
     from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
+    _empty_cuda_cache()
     results_raw = model.generate(
         input=audio_paths,
         cache={},
@@ -101,6 +139,7 @@ def _transcribe_batch(model, audio_paths: list[str]) -> list[dict]:
         merge_vad=True,
         merge_length_s=15,
     )
+    _empty_cuda_cache()
 
     output = []
     for i, res in enumerate(results_raw):
