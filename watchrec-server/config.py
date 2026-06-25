@@ -27,6 +27,11 @@ BATCH_SIZE_S = 300
 MAX_BATCH_FILES = 16
 TIMEZONE = "Asia/Shanghai"
 
+# 超长音频显存防爆：长于阈值的文件先用 ffmpeg 切片，逐片转写再拼接，
+# 把单次 generate 的峰值显存钉死在一片的量级（与总时长无关）。
+LONG_AUDIO_THRESHOLD_SEC = 1800   # 超过 30 分钟启用切片
+CHUNK_WINDOW_SEC = 1200           # 每片 20 分钟
+
 # ── LAN IP（留空 = 自动探测，Clash TUN 下可能返回假 IP，手表回退走 VPS，无害）──
 LAN_IP_OVERRIDE = os.environ.get("LAN_IP_OVERRIDE", "")
 

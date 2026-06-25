@@ -12,6 +12,9 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +23,12 @@ from zoneinfo import ZoneInfo
 # 减少长音频转写时的显存碎片（必须在 torch 初始化 CUDA 上下文之前设置）。
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-from config import BATCH_SIZE_S, TIMEZONE
+from config import (
+    BATCH_SIZE_S,
+    CHUNK_WINDOW_SEC,
+    LONG_AUDIO_THRESHOLD_SEC,
+    TIMEZONE,
+)
 
 logger = logging.getLogger("transcriber")
 
@@ -80,11 +88,75 @@ def _is_oom(e: Exception) -> bool:
     return "out of memory" in str(e).lower()
 
 
+def _ffmpeg_chunk(src: Path, start: float, length: float, dst: Path) -> None:
+    """用 ffmpeg 截取 [start, start+length) 段，转成 16kHz 单声道 wav 喂给模型。"""
+    exe = shutil.which("ffmpeg") or "ffmpeg"
+    subprocess.run(
+        [exe, "-v", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
+         "-i", str(src), "-ar", "16000", "-ac", "1", str(dst)],
+        check=True, capture_output=True,
+    )
+
+
+def _transcribe_long(model, path: Path, total_sec: float) -> dict:
+    """超长音频：切成 CHUNK_WINDOW_SEC 一片逐片转写再拼接，峰值显存与总时长无关。"""
+    from funasr.utils.postprocess_utils import rich_transcription_postprocess
+
+    n_chunks = int((total_sec + CHUNK_WINDOW_SEC - 1) // CHUNK_WINDOW_SEC)
+    print(f"  ⏳ 长音频 {total_sec/60:.0f} 分钟，切成 {n_chunks} 片（每片 {CHUNK_WINDOW_SEC//60} 分钟）逐片转写")
+
+    raws: list[str] = []
+    language = "unknown"
+    tmpdir = Path(tempfile.mkdtemp(prefix="wrec_chunk_"))
+    try:
+        start = 0.0
+        idx = 0
+        while start < total_sec - 0.05:
+            length = min(float(CHUNK_WINDOW_SEC), total_sec - start)
+            chunk = tmpdir / f"c{idx}.wav"
+            _ffmpeg_chunk(path, start, length, chunk)
+            _empty_cuda_cache()
+            res = model.generate(
+                input=str(chunk), cache={}, language="auto", use_itn=True,
+                batch_size_s=BATCH_SIZE_S, merge_vad=True, merge_length_s=15,
+            )
+            _empty_cuda_cache()
+            raws.append(res[0]["text"])
+            lang = res[0].get("language")
+            if lang:
+                language = lang
+            try:
+                chunk.unlink()
+            except OSError:
+                pass
+            idx += 1
+            start += length
+            print(f"    … 切片 {idx}/{n_chunks} 完成（至 {int(min(start, total_sec))}/{int(total_sec)}s）")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    raw_text = "".join(raws)
+    clean_text = rich_transcription_postprocess(raw_text)
+    return {
+        "transcript": clean_text,
+        "raw": raw_text,
+        "language": language,
+        "duration_sec": total_sec,
+    }
+
+
 def _transcribe_single(model, audio_path: str) -> dict:
     """转写单个文件，返回结果字典。OOM 时清显存并逐级缩小 batch 重试。"""
     from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
     path = Path(audio_path)
+
+    # 超长音频改走切片转写：单次 generate 的峰值显存（VAD/特征提取对全文件的
+    # 大张量 + 调用内累积）随总时长增长，缩 batch_size_s 救不了，必须切短输入。
+    total = audio_duration(path) or 0
+    if total > LONG_AUDIO_THRESHOLD_SEC and shutil.which("ffmpeg"):
+        return _transcribe_long(model, path, total)
+
     _empty_cuda_cache()  # 开工前先腾出最大可用显存
 
     res = None
