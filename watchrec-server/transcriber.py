@@ -70,8 +70,9 @@ def _get_model():
 
 # ── 转写 ───────────────────────────────────────────────────
 
-# 单批显存随 batch_size_s 增长；长音频或显存碎片化时一档可能 OOM，逐级缩小重试。
-_BATCH_FALLBACKS = [bs for bs in (BATCH_SIZE_S, 120, 60, 30) if bs <= BATCH_SIZE_S] or [BATCH_SIZE_S]
+# OOM 二分切片的下限：再短就不切了。一段 ≤60s 时即便 VAD 切不动（连续音无停顿），
+# 单段自注意力也只有 0.5GiB 量级，8GB 卡必然放得下。
+_MIN_SPAN_SEC = 60
 
 
 def _empty_cuda_cache():
@@ -98,8 +99,47 @@ def _ffmpeg_chunk(src: Path, start: float, length: float, dst: Path) -> None:
     )
 
 
+def _generate_raw(model, wav_path: Path) -> tuple[str, str]:
+    """对单个 wav 跑一次 generate，返回 (raw_text, language)。前后清显存。"""
+    _empty_cuda_cache()
+    res = model.generate(
+        input=str(wav_path), cache={}, language="auto", use_itn=True,
+        batch_size_s=BATCH_SIZE_S, merge_vad=True, merge_length_s=15,
+    )
+    _empty_cuda_cache()
+    return res[0]["text"], res[0].get("language") or ""
+
+
+def _transcribe_span(model, src: Path, start: float, length: float, tmpdir: Path) -> tuple[str, str]:
+    """转写 [start, start+length) 段，返回 (raw, language)。
+
+    OOM 时把这一段二分重试 —— 隔离“连续音 VAD 切不动→单段超长→自注意力爆显存”
+    的坏区，只有出问题的段会被细切，正常段不受影响。切到 _MIN_SPAN_SEC 仍 OOM 才放弃。
+    """
+    chunk = tmpdir / f"s{int(start)}_{int(length)}.wav"
+    _ffmpeg_chunk(src, start, length, chunk)
+    try:
+        return _generate_raw(model, chunk)
+    except RuntimeError as e:
+        _empty_cuda_cache()
+        if not _is_oom(e) or length <= _MIN_SPAN_SEC:
+            raise
+        half = length / 2
+        print(f"    ⚠ {int(start)}~{int(start+length)}s 段显存不足，二分为 2×{half/60:.1f} 分钟重试")
+        logger.warning("CUDA OOM on span %.0f~%.0fs, bisecting", start, start + length)
+        r1, l1 = _transcribe_span(model, src, start, half, tmpdir)
+        r2, l2 = _transcribe_span(model, src, start + half, length - half, tmpdir)
+        return r1 + r2, (l1 or l2)
+    finally:
+        try:
+            chunk.unlink()
+        except OSError:
+            pass
+
+
 def _transcribe_long(model, path: Path, total_sec: float) -> dict:
-    """超长音频：切成 CHUNK_WINDOW_SEC 一片逐片转写再拼接，峰值显存与总时长无关。"""
+    """超长音频：切成 CHUNK_WINDOW_SEC 一片逐片转写再拼接，峰值显存与总时长无关。
+    某片遇到连续音超长段时按 _transcribe_span 二分兜底。"""
     from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
     n_chunks = int((total_sec + CHUNK_WINDOW_SEC - 1) // CHUNK_WINDOW_SEC)
@@ -113,22 +153,10 @@ def _transcribe_long(model, path: Path, total_sec: float) -> dict:
         idx = 0
         while start < total_sec - 0.05:
             length = min(float(CHUNK_WINDOW_SEC), total_sec - start)
-            chunk = tmpdir / f"c{idx}.wav"
-            _ffmpeg_chunk(path, start, length, chunk)
-            _empty_cuda_cache()
-            res = model.generate(
-                input=str(chunk), cache={}, language="auto", use_itn=True,
-                batch_size_s=BATCH_SIZE_S, merge_vad=True, merge_length_s=15,
-            )
-            _empty_cuda_cache()
-            raws.append(res[0]["text"])
-            lang = res[0].get("language")
+            raw, lang = _transcribe_span(model, path, start, length, tmpdir)
+            raws.append(raw)
             if lang:
                 language = lang
-            try:
-                chunk.unlink()
-            except OSError:
-                pass
             idx += 1
             start += length
             print(f"    … 切片 {idx}/{n_chunks} 完成（至 {int(min(start, total_sec))}/{int(total_sec)}s）")
@@ -146,51 +174,41 @@ def _transcribe_long(model, path: Path, total_sec: float) -> dict:
 
 
 def _transcribe_single(model, audio_path: str) -> dict:
-    """转写单个文件，返回结果字典。OOM 时清显存并逐级缩小 batch 重试。"""
+    """转写单个文件。超长走切片；其余整文件转，OOM 则切片兜底。"""
     from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
     path = Path(audio_path)
-
-    # 超长音频改走切片转写：单次 generate 的峰值显存（VAD/特征提取对全文件的
-    # 大张量 + 调用内累积）随总时长增长，缩 batch_size_s 救不了，必须切短输入。
     total = audio_duration(path) or 0
-    if total > LONG_AUDIO_THRESHOLD_SEC and shutil.which("ffmpeg"):
+    have_ffmpeg = bool(shutil.which("ffmpeg"))
+
+    # 超长音频：直接切片。单次 generate 的峰值显存随输入长度增长（VAD 对全文件的
+    # 大张量、连续音切不动产生的超长段），缩 batch_size_s 救不了，必须切短输入。
+    if total > LONG_AUDIO_THRESHOLD_SEC and have_ffmpeg:
         return _transcribe_long(model, path, total)
 
-    _empty_cuda_cache()  # 开工前先腾出最大可用显存
-
-    res = None
-    for i, bs in enumerate(_BATCH_FALLBACKS):
-        try:
-            res = model.generate(
-                input=str(path),
-                cache={},
-                language="auto",
-                use_itn=True,
-                batch_size_s=bs,
-                merge_vad=True,
-                merge_length_s=15,
-            )
-            break
-        except RuntimeError as e:
-            if not _is_oom(e) or i == len(_BATCH_FALLBACKS) - 1:
-                _empty_cuda_cache()
-                raise
-            nxt = _BATCH_FALLBACKS[i + 1]
-            print(f"  ⚠ 显存不足(batch_size_s={bs})，清缓存后改用 {nxt}s 重试…")
-            logger.warning("CUDA OOM at batch_size_s=%s, retry with %s", bs, nxt)
-            _empty_cuda_cache()
-
-    raw_text = res[0]["text"]
-    clean_text = rich_transcription_postprocess(raw_text)
-    language = res[0].get("language", "unknown")
-    _empty_cuda_cache()  # 收尾释放，给下一条留干净显存
+    _empty_cuda_cache()
+    try:
+        res = model.generate(
+            input=str(path), cache={}, language="auto", use_itn=True,
+            batch_size_s=BATCH_SIZE_S, merge_vad=True, merge_length_s=15,
+        )
+        raw_text = res[0]["text"]
+        language = res[0].get("language", "unknown")
+        _empty_cuda_cache()
+    except RuntimeError as e:
+        _empty_cuda_cache()
+        if not _is_oom(e) or not have_ffmpeg:
+            raise
+        # 短文件也可能藏一段连续音超长段而爆显存：切片 + 二分兜底
+        print("  ⚠ 整文件转写显存不足，改用切片兜底")
+        logger.warning("CUDA OOM on whole file, falling back to chunking")
+        return _transcribe_long(model, path, total or _probe_duration(path) or 0)
 
     return {
-        "transcript": clean_text,
+        "transcript": rich_transcription_postprocess(raw_text),
         "raw": raw_text,
         "language": language,
-        "duration_sec": audio_duration(path),
+        "duration_sec": total,
     }
 
 
