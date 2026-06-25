@@ -99,12 +99,16 @@ def _ffmpeg_chunk(src: Path, start: float, length: float, dst: Path) -> None:
     )
 
 
+# 关键：merge_vad 必须关。它会把 VAD 切好的小段（≤max_single_segment_time）重新合并，
+# 在“连续无静音的低能量底噪”区段会一路合并成超长段，喂进 ASR 后自注意力 O(L²) 爆显存
+# （实测同一坏区 merge_vad=True 直接 OOM 7.99GiB，关掉后 5.4s 转完）。关掉后段长被
+# max_single_segment_time=30s 钉死，峰值显存可控。SenseVoice 本就是按段独立转，影响极小。
 def _generate_raw(model, wav_path: Path) -> tuple[str, str]:
     """对单个 wav 跑一次 generate，返回 (raw_text, language)。前后清显存。"""
     _empty_cuda_cache()
     res = model.generate(
         input=str(wav_path), cache={}, language="auto", use_itn=True,
-        batch_size_s=BATCH_SIZE_S, merge_vad=True, merge_length_s=15,
+        batch_size_s=BATCH_SIZE_S, merge_vad=False,
     )
     _empty_cuda_cache()
     return res[0]["text"], res[0].get("language") or ""
@@ -190,7 +194,7 @@ def _transcribe_single(model, audio_path: str) -> dict:
     try:
         res = model.generate(
             input=str(path), cache={}, language="auto", use_itn=True,
-            batch_size_s=BATCH_SIZE_S, merge_vad=True, merge_length_s=15,
+            batch_size_s=BATCH_SIZE_S, merge_vad=False,  # 见 _generate_raw 上方说明
         )
         raw_text = res[0]["text"]
         language = res[0].get("language", "unknown")
@@ -226,8 +230,7 @@ def _transcribe_batch(model, audio_paths: list[str]) -> list[dict]:
         language="auto",
         use_itn=True,
         batch_size_s=BATCH_SIZE_S,
-        merge_vad=True,
-        merge_length_s=15,
+        merge_vad=False,  # 见 _generate_raw 上方说明
     )
     _empty_cuda_cache()
 
