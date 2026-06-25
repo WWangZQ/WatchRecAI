@@ -35,6 +35,9 @@ logger = logging.getLogger("transcriber")
 _tz = ZoneInfo(TIMEZONE)
 _FILENAME_RE = re.compile(r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})")
 
+# Windows 下隐藏 ffmpeg/ffprobe 子进程的控制台黑框；切片会频繁调 ffmpeg，否则一直闪窗。
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 # ── 模型（线程安全，双重检查锁）─────────────────────────────
 
 _model = None
@@ -95,7 +98,7 @@ def _ffmpeg_chunk(src: Path, start: float, length: float, dst: Path) -> None:
     subprocess.run(
         [exe, "-v", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
          "-i", str(src), "-ar", "16000", "-ac", "1", str(dst)],
-        check=True, capture_output=True,
+        check=True, capture_output=True, creationflags=_NO_WINDOW,
     )
 
 
@@ -363,7 +366,7 @@ def _probe_duration(audio_path) -> float | None:
         out = subprocess.run(
             [exe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1:nk=1", str(audio_path)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, creationflags=_NO_WINDOW,
         )
         v = out.stdout.strip()
         return round(float(v), 2) if v else None
