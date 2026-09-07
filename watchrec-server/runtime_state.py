@@ -92,3 +92,8 @@ def enrich_get(rid: str) -> dict:
 def enrich_running(rid: str) -> bool:
     with _enrich_lock:
         return (_enrich.get(rid) or {}).get("status") == "running"
+
+
+def enrich_clear(rid: str) -> None:
+    with _enrich_lock:
+        _enrich.pop(rid, None)

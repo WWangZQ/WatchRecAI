@@ -109,6 +109,9 @@ class MainActivity : AppCompatActivity() {
         micIcon = findViewById(R.id.micIcon)
         timerText = findViewById(R.id.timerText)
         goToListBtn = findViewById(R.id.goToListBtn)
+        findViewById<TextView>(R.id.connectionSettingsBtn).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
 
         recordButton.setOnClickListener {
             if (checkAudioPermission()) toggleRecording()
@@ -137,6 +140,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         hideSystemUI()
         syncUIWithService()
+        findViewById<TextView>(R.id.connectionSettingsBtn).text =
+            if (com.watchrec.app.uploader.Config.current().configured) "连接设置" else "连接设置 · 尚未配置"
         // 重试上传所有未上传的录音
         AudioUploader.uploadPendingFiles(this)
         // 上传后清理过期录音

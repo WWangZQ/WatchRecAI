@@ -8,13 +8,14 @@ llm.py 在每次调用时读取这里，所以页面保存后立即生效，无�
 
 import json
 import threading
-from pathlib import Path
+import os
+from paths import DATA_HOME
 
 from config import LLM_API_KEY as _ENV_KEY
 from config import LLM_BASE_URL as _ENV_BASE
 from config import LLM_MODEL as _ENV_MODEL
 
-_FILE = Path(__file__).parent / "settings.json"
+_FILE = DATA_HOME / "settings.json"
 _lock = threading.Lock()
 
 _settings = {
@@ -50,5 +51,7 @@ def save_llm(base_url: str, api_key: str | None, model: str) -> dict:
         _settings["llm_model"] = (model or "gpt-4o-mini").strip()
         if api_key:  # 非空才覆盖
             _settings["llm_api_key"] = api_key.strip()
-        _FILE.write_text(json.dumps(_settings, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp = _FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(_settings, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp, _FILE)
         return dict(_settings)

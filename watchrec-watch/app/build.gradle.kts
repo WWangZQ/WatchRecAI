@@ -1,18 +1,7 @@
-import java.io.FileInputStream
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
-
-// 从 local.properties（已 gitignore）读取鉴权 token，避免明文入库。
-// 本地需在 local.properties 写一行：APP_TOKEN=你的token
-val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) FileInputStream(f).use { load(it) }
-}
-val appToken: String = localProps.getProperty("APP_TOKEN") ?: ""
 
 android {
     namespace = "com.watchrec.app"
@@ -23,13 +12,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.watchrec.app"
+        applicationId = "com.watchrec.opensource"
         minSdk = 26
         targetSdk = 30
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0-preview"
 
-        buildConfigField("String", "APP_TOKEN", "\"$appToken\"")
     }
 
     buildTypes {

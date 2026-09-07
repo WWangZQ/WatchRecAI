@@ -1,22 +1,9 @@
 @echo off
 cd /d "%~dp0"
-echo === WatchRec PC ===
-
-call "%USERPROFILE%\miniconda3\Scripts\activate.bat" ics 2>nul
-if errorlevel 1 (
-    call "D:\ProgramData\miniconda3\Scripts\activate.bat" ics 2>nul
-)
-if errorlevel 1 (
-    echo [ERROR] Cannot activate conda ics env
+if not exist .venv\Scripts\python.exe (
+    echo Run setup.bat first to install the independent Python environment.
     pause
     exit /b 1
 )
-
-if not exist .env (
-    echo [ERROR] .env not found. Copy .env.example and fill in APP_TOKEN.
-    pause
-    exit /b 1
-)
-
-python server.py
-pause
+.venv\Scripts\python.exe desktop.py
+if errorlevel 1 pause

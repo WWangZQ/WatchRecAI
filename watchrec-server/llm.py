@@ -10,6 +10,7 @@ AI 整理：调用 OpenAI 兼容的在线 API。
 """
 
 import re
+import time
 
 import requests
 
@@ -78,25 +79,39 @@ def is_configured() -> bool:
 def _chat(system: str, user: str, max_tokens: int = MAX_TOKENS, temperature: float = 0.3) -> str:
     c = get_llm()
     url = c["llm_base_url"].rstrip("/") + "/chat/completions"
-    resp = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {c['llm_api_key']}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": c["llm_model"],
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
-        timeout=REQUEST_TIMEOUT,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    last_error = None
+    for attempt in range(4):
+        try:
+            resp = requests.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {c['llm_api_key']}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": c["llm_model"],
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"].strip()
+        except (requests.RequestException, ValueError, KeyError, IndexError) as e:
+            last_error = e
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            # 参数/鉴权等确定性 4xx 不重试；限流和服务端/网络中断可安全重试。
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise
+            if attempt < 3:
+                delay = 2 ** attempt
+                print(f"    ↻ AI 请求中断，{delay}s 后重试 ({attempt + 1}/3)：{str(e)[:120]}")
+                time.sleep(delay)
+    raise last_error
 
 
 # 长逐字稿分段去噪：整段重写会退化（前面认真改、后面照抄），切成 ~1000 字的小块
@@ -149,7 +164,7 @@ def _denoise_chunk(prev: str, core: str, nxt: str) -> str:
     return _strip_output(_chat(_DENOISE_CHUNK_SYS, "\n".join(parts)))
 
 
-def denoise(transcript: str, progress=None) -> str | None:
+def denoise(transcript: str, progress=None, resume_parts=None, checkpoint=None) -> str | None:
     """原文逐字稿 → 通顺可读的全文（长文本：小块 + 上下文 + 并行清洗）。
 
     progress(done, total): 可选回调，每完成一块调用一次，用于上报进度。
@@ -159,9 +174,15 @@ def denoise(transcript: str, progress=None) -> str | None:
         return None
     chunks = _split_chunks(text, _CHUNK_TARGET)
     if len(chunks) == 1:
+        if resume_parts and len(resume_parts) == 1 and resume_parts[0]:
+            if progress:
+                progress(1, 1)
+            return resume_parts[0]
         if progress:
             progress(0, 1)
         out = _strip_output(_chat(_DENOISE_SYS, text))
+        if checkpoint:
+            checkpoint(0, out, 1)
         if progress:
             progress(1, 1)
         return out
@@ -174,14 +195,14 @@ def denoise(transcript: str, progress=None) -> str | None:
         jobs.append((prev, ch, nxt))
 
     print(f"    … AI 去噪：{n} 段，并发 {_DENOISE_CONCURRENCY}")
-    if progress:
-        progress(0, n)
 
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
-    parts: list = [None] * n
-    done = 0
+    parts: list = list(resume_parts) if resume_parts and len(resume_parts) == n else [None] * n
+    done = sum(1 for p in parts if p)
+    if progress:
+        progress(done, n)
     lock = threading.Lock()
 
     def run(i):
@@ -191,11 +212,16 @@ def denoise(transcript: str, progress=None) -> str | None:
             parts[i] = res
             done += 1
             cur = done
+            if checkpoint:
+                checkpoint(i, res, n)
         if progress:
             progress(cur, n)
 
+    missing = [i for i, part in enumerate(parts) if not part]
+    if done:
+        print(f"    ↻ AI 去噪续跑：已完成 {done}/{n} 段，只处理剩余 {len(missing)} 段")
     with ThreadPoolExecutor(max_workers=_DENOISE_CONCURRENCY) as ex:
-        list(ex.map(run, range(n)))
+        list(ex.map(run, missing))
     return "\n\n".join(p for p in parts if p)
 
 

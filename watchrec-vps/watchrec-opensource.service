@@ -1,0 +1,22 @@
+[Unit]
+Description=WatchRec Open Source relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=watchrec
+Group=watchrec
+WorkingDirectory=/opt/watchrec-opensource/watchrec-vps
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/watchrec-opensource/watchrec-vps/.venv/bin/python server.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/watchrec-opensource/watchrec-vps/data
+
+[Install]
+WantedBy=multi-user.target

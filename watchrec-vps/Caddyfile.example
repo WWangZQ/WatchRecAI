@@ -1,0 +1,4 @@
+# Add this site block to your existing Caddyfile; replace the example domain.
+rec.example.com {
+    reverse_proxy 127.0.0.1:8765
+}

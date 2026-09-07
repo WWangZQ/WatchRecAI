@@ -61,9 +61,7 @@ class TranscribeWorker:
 
     def _run(self):
         # 模型在 worker 线程内加载，不阻塞 uvicorn 启动
-        from transcriber import ensure_model_loaded
-        ensure_model_loaded()
-        set_state(model_loaded=True)
+        # 首次有录音才加载模型；下载或模型错误由每批的异常处理捕获。
 
         while not self._stop_flag:
             try:
@@ -154,22 +152,37 @@ class TranscribeWorker:
     def _enrich(self, paths: list[str], results: list):
         """转写完成后，逐个调 LLM：原文 → 全文(去噪) → 总结，写回边车。"""
         try:
-            from llm import is_configured, enrich
+            from llm import is_configured
+            from enrichment import run_enrichment
         except Exception as e:
             print(f"  ✗ AI 模块加载失败: {e}")
             return
         if not is_configured():
             return
 
-        from transcriber import update_sidecar
+        from config import LOCAL_DATA_DIR
+        from runtime_state import enrich_set
+        jobs = []
         for path, result in zip(paths, results):
             if not result or not result.get("transcript"):
                 continue
+            try:
+                rid = Path(path).resolve().relative_to(Path(LOCAL_DATA_DIR).resolve()).as_posix()
+            except ValueError:
+                rid = Path(path).name
+            jobs.append((path, rid))
+            # 所有刚转写完成的录音先登记为排队中，UI 会立即锁定生成按钮。
+            enrich_set(rid, status="running", phase="排队中", done=0, total=0, error=None)
+
+        for path, rid in jobs:
             name = Path(path).name
             set_state(transcribing=f"AI 整理 {name}")
             try:
-                full, summary, head = enrich(result["transcript"])
-                update_sidecar(path, {"full_text": full, "summary": summary, "headline": head})
+                completed = run_enrichment(rid, Path(path).with_suffix(".json"))
+                if not completed:
+                    continue
+                latest = __import__("json").loads(Path(path).with_suffix(".json").read_text(encoding="utf-8"))
+                head = latest.get("headline")
                 print(f"    ✎ AI 整理完成: {name}" + (f" — 「{head}」" if head else ""))
             except Exception as e:
                 print(f"    ✗ AI 整理失败: {name} — {e}")

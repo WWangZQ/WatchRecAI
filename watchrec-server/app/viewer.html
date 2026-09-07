@@ -1122,7 +1122,14 @@ async function resumeEnrich(id) {
   try {
     const r = await fetch('/api/enrich/status?id=' + encodeURIComponent(id));
     const j = await r.json();
-    if (j.status === 'running') pollEnrich(id);
+    if (j.status === 'running') {
+      const btn = $('#genBtn'); if (btn) btn.disabled = true;
+      pollEnrich(id);
+    } else if (j.status === 'paused') {
+      setEnrichStatus(`上次中断，可继续 ${j.done || 0}/${j.total || 0} 段`, 'err');
+    } else if (j.status === 'error') {
+      setEnrichStatus('上次失败，点击可从断点继续：' + (j.error || '未知错误'), 'err');
+    }
   } catch {}
 }
 
@@ -1173,7 +1180,7 @@ function retryBtn(endpoint, label) {
 
 async function aiRetry(endpoint, ev) {
   if (!currentId) return;
-  // 全文重新生成 = enrich 后台任务，走轮询进度，别走会被掐断的长请求
+  // 全文和总结都走同一个后台任务状态，自动整理时按钮也会被锁定。
   if (endpoint === '/api/enrich') { startEnrich(currentId); return; }
   const btn = ev.currentTarget;
   btn.classList.add('spin');
@@ -1181,8 +1188,7 @@ async function aiRetry(endpoint, ev) {
   try {
     const res = await fetch(endpoint + '?id=' + encodeURIComponent(currentId), { method: 'POST' });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || ('HTTP ' + res.status)); }
-    await selectRecording(currentId);
-    loadRecordings();
+    pollEnrich(currentId);
   } catch (e) {
     btn.classList.remove('spin');
     btn.disabled = false;
@@ -1618,5 +1624,6 @@ pollStatus();
 setInterval(pollStatus, 3000);
 setInterval(autoRefreshList, 8000);   // 新录音自动出现在列表
 </script>
+<script src="/connection.js"></script>
 </body>
 </html>

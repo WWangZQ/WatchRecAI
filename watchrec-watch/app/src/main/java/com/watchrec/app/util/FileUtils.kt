@@ -46,7 +46,9 @@ object FileUtils {
      */
     fun cleanupUploadedRecordings(context: Context) {
         val dir = getRecordingDir(context)
-        val deleted = cleanupExpiredUploads(dir, System.currentTimeMillis(), MAX_RETENTION_DAYS)
+        val days = com.watchrec.app.uploader.Config.retentionDays
+        if (days == 0) return
+        val deleted = cleanupExpiredUploads(dir, System.currentTimeMillis(), days)
         if (deleted > 0) {
             Log.i(TAG, "Cleanup: deleted $deleted expired uploaded recording(s)")
         }

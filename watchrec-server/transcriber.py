@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 from config import (
-    BATCH_SIZE_S,
+    BATCH_SIZE_S, ASR_DEVICE,
     CHUNK_WINDOW_SEC,
     LONG_AUDIO_THRESHOLD_SEC,
     TIMEZONE,
@@ -58,15 +58,24 @@ def _get_model():
 
         from funasr import AutoModel
 
+        import torch
+        device = ASR_DEVICE
+        if device == "auto":
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        if device.startswith("cuda") and not torch.cuda.is_available():
+            raise RuntimeError("未检测到可用 CUDA；请在设置中改为自动或 CPU。")
         model = AutoModel(
             model="iic/SenseVoiceSmall",
             vad_model="fsmn-vad",
             vad_kwargs={"max_single_segment_time": 30000},
-            device="cuda:0",
+            device=device,
+            disable_update=True,
         )
 
         _model = model
-        print("  ✓ SenseVoice-Small 模型已加载 (GPU)")
+        print(f"  ✓ SenseVoice-Small 模型已加载 ({device})")
+        from runtime_state import set_state
+        set_state(model_loaded=True, asr_device=device)
         logger.info("Model loaded")
         return _model
 

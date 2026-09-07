@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
-# 本地开发启动脚本
-# 生产环境请用 systemd，见 README
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
-
-if [ -z "$APP_TOKEN" ]; then
-    if [ -f .env ]; then
-        export $(grep -v '^#' .env | xargs)
-    else
-        echo "ERROR: APP_TOKEN not set. Copy .env.example to .env and fill in a token."
-        exit 1
-    fi
+if [[ ! -x .venv/bin/python ]]; then
+  echo "先运行 python3 -m venv .venv，再运行 .venv/bin/pip install -r requirements.txt"
+  exit 1
 fi
-
-pip install -r requirements.txt 2>/dev/null
-python server.py
+exec .venv/bin/python server.py

@@ -1,30 +1,35 @@
-*.iml
-.gradle
-/.idea
-.DS_Store
-/captures
-.externalNativeBuild
-.cxx
-
-# 手表端 Android 构建产物
-watchrec-watch/local.properties
-watchrec-watch/build
-watchrec-watch/app/build
-
-# Python
+# Build tools, diagnostics and packaged outputs
+.build-env/
+.build-tools/
+.build-output/
+.verification/
+.pytest_cache/
+dist/
+.gradle/
+.idea/
 __pycache__/
 *.pyc
+*.log
+*.iml
+.DS_Store
+Thumbs.db
 
-# 环境变量（含 token 密钥）
+# Local runtime configuration and recordings
 .env
-
-# 前端保存的运行时设置（含 LLM API Key）
-watchrec-server/settings.json
-
-# 桌面应用运行时日志
-watchrec-server/watchrec.log
-
-# 录音/转写等运行时数据（整目录忽略，含各种音频格式与边车 JSON）
-watchrec-server/uploads/
+.env.*
+!.env.example
+.venv/
+watchrec-server/data/
 watchrec-server/downloads/
+watchrec-server/uploads/
+watchrec-server/settings.json
+watchrec-vps/data/
 watchrec-vps/uploads/
+*.jks
+*.keystore
+.signing/
+
+# Android machine-specific state
+watchrec-watch/local.properties
+watchrec-watch/build/
+watchrec-watch/app/build/

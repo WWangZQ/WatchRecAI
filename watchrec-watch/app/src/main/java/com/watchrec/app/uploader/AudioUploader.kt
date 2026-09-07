@@ -14,7 +14,7 @@ import javax.net.ssl.HttpsURLConnection
 /**
  * 录音文件上传工具（单例）。
  *
- * - 支持局域网直传（HTTP）和 VPS 中转（HTTPS + 证书钉扎）
+ * - 支持局域网直传（HTTP）和 VPS 中转（HTTPS 系统证书校验）
  * - setChunkedStreamingMode 流式上传，内存占用恒定
  * - SslHelper.init 在每个上传入口防御性调用（支持 WorkManager）
  */
@@ -43,7 +43,9 @@ object AudioUploader {
     fun isServerOnline(context: Context): Boolean {
         SslHelper.init(context)
         return try {
-            val conn = openConnection("${Config.VPS_URL}/health", "GET")
+            val cfg = Config.current()
+            if (!cfg.configured) { lastError = "尚未配置服务器，请打开连接设置。"; return false }
+            val conn = openConnection("${cfg.vpsUrl.ifBlank { cfg.lanUrl }}/health", "GET", cfg.token)
             conn.connectTimeout = 5_000
             conn.readTimeout = 5_000
             val ok = conn.responseCode == 200
@@ -72,9 +74,19 @@ object AudioUploader {
      */
     fun upload(file: File, context: Context, target: UploadTarget): Boolean {
         SslHelper.init(context)
+        if (target.baseUrl.isBlank() || target.token.isBlank()) {
+            lastError = "尚未配置服务器；录音已保存在手表，设置完成后会重试。"
+            return false
+        }
+        // _tmp.m4a 是录音中的工作文件；MediaRecorder 正常 stop 后才会改成带时长的最终文件。
+        // 异常退出留下的 tmp 没有 moov atom，任何上传入口都必须在这里统一拦截。
+        if (file.name.endsWith("_tmp.m4a")) {
+            Log.d(TAG, "Skip unfinished recording: ${file.name}")
+            return false
+        }
         if (isUploaded(file)) return true
         return try {
-            val ok = doUpload(file, target.baseUrl)
+            val ok = doUpload(file, target.baseUrl, target.token)
             if (ok) {
                 markAsUploaded(file)
                 lastError = null
@@ -83,7 +95,7 @@ object AudioUploader {
         } catch (e: Exception) {
             val msg = "${e.javaClass.simpleName}: ${e.message}"
             lastError = msg
-            Log.e(TAG, "Upload failed: ${file.name} → $target — $msg", e)
+            Log.e(TAG, "Upload failed: ${file.name} → ${target.baseUrl} — $msg", e)
             false
         }
     }
@@ -108,13 +120,14 @@ object AudioUploader {
         executor.execute {
             SslHelper.init(context)
             val target = UploadRouter.resolve(context)
-            Log.d(TAG, "Upload target: $target")
+            Log.d(TAG, "Upload target: ${target.baseUrl}")
 
             val dir = FileUtils.getRecordingDir(context)
             val pending = dir.listFiles()
                 ?.filter {
                     it.isFile
                         && it.name.endsWith(".m4a")
+                        && !it.name.endsWith("_tmp.m4a")
                         && !isUploaded(it)
                 }
                 ?.sortedByDescending { it.lastModified() }
@@ -146,30 +159,22 @@ object AudioUploader {
     /**
      * 构建 HTTP(S) 连接。
      * LAN 走明文 HttpURLConnection（networkSecurityConfig 全局放行）。
-     * VPS 走 HTTPS + SslHelper 证书钉扎。
+     * VPS 走 HTTPS 系统证书校验。
      * 两条路都带 Authorization: Bearer token。
      */
-    private fun openConnection(urlStr: String, method: String): HttpURLConnection {
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.requestMethod = method
-        conn.setRequestProperty("Authorization", "Bearer ${Config.APP_TOKEN}")
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 60_000
-
-        // 仅 HTTPS 时才钉扎证书
-        if (conn is HttpsURLConnection) {
-            SslHelper.getFactory()?.let { conn.sslSocketFactory = it }
-            SslHelper.getVerifier()?.let { conn.hostnameVerifier = it }
+    private fun openConnection(urlStr: String, method: String, token: String): HttpURLConnection {
+        return SslHelper.open(urlStr, token, method).apply {
+            connectTimeout = 10_000
+            readTimeout = 60_000
         }
-        return conn
     }
 
     /**
      * 流式上传文件到目标地址。
      * setChunkedStreamingMode 保证内存占用恒定，不会因大文件 OOM。
      */
-    private fun doUpload(file: File, baseUrl: String): Boolean {
-        val conn = openConnection("$baseUrl/upload", "POST")
+    private fun doUpload(file: File, baseUrl: String, token: String): Boolean {
+        val conn = openConnection("$baseUrl/upload", "POST", token)
 
         try {
             conn.doOutput = true

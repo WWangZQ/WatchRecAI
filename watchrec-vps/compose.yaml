@@ -1,0 +1,16 @@
+services:
+  watchrec:
+    build: .
+    restart: unless-stopped
+    environment:
+      APP_TOKEN: ${APP_TOKEN:?Please run python3 setup.py first}
+      HOST: 0.0.0.0
+      PORT: 8765
+      TIMEZONE: ${TIMEZONE:-Asia/Shanghai}
+      RETENTION_DAYS: ${RETENTION_DAYS:-3}
+    ports:
+      - "${WATCHREC_BIND:-127.0.0.1}:${WATCHREC_PORT:-8765}:8765"
+    volumes:
+      - recordings:/data
+volumes:
+  recordings:

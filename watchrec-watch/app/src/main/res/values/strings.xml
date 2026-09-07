@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">录音</string>
+    <string name="app_name">WatchRec 开源版</string>
     <string name="btn_record_desc">录音按钮</string>
     <string name="go_to_list">录音列表</string>
     <string name="recording_list_title">录音列表</string>

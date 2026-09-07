@@ -1,22 +1,8 @@
 #!/usr/bin/env bash
-# WatchRec 电脑端统一服务（LAN 接收 + VPS 轮询 + 转写）
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
-
-CONDA_ENV="ics"
-CONDA_BASE=$(conda info --base 2>/dev/null)
-if [ -z "$CONDA_BASE" ]; then
-    echo "[ERROR] conda not found"
-    exit 1
+if [[ ! -x .venv/bin/python ]]; then
+  echo "先按 docs/desktop.md 安装 .venv 环境。"
+  exit 1
 fi
-
-source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate "$CONDA_ENV"
-echo "  Env: $CONDA_ENV ($(python --version 2>&1))"
-
-if [ ! -f .env ]; then
-    echo "[ERROR] .env not found. Copy .env.example and fill in APP_TOKEN."
-    exit 1
-fi
-
-python server.py
+exec .venv/bin/python server.py

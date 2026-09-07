@@ -8,6 +8,7 @@ WatchRec VPS 接收服务
 单 worker 约束：uvicorn 只跑 1 个 worker，LAN 缓存在内存中，多 worker 会不共享。
 """
 
+import hmac
 import asyncio
 import json
 import os
@@ -24,13 +25,13 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from config import APP_TOKEN, LAN_TTL_SECONDS, PORT, RETENTION_DAYS, TIMEZONE
+from config import APP_TOKEN, LAN_TTL_SECONDS, PORT, HOST, RETENTION_DAYS, TIMEZONE, UPLOAD_DIR
 
 tz = ZoneInfo(TIMEZONE)
-upload_dir = Path(__file__).parent / "uploads"
-upload_dir.mkdir(exist_ok=True)
+upload_dir = UPLOAD_DIR
+upload_dir.mkdir(parents=True, exist_ok=True)
 
-FILENAME_RE = re.compile(r"^recording_(\d+)_(.+)\.m4a$")
+FILENAME_RE = re.compile(r"^recording_(\d+)_(\d+|tmp)\.m4a$")
 
 # ── LAN 缓存（内存，重启丢失，可接受）──────────────────────
 
@@ -42,6 +43,8 @@ _lan_lock = asyncio.Lock()
 
 def _cleanup_expired():
     """删除 status==transcribed 且 uploaded_at > RETENTION_DAYS 天前的文件和 meta。"""
+    if RETENTION_DAYS == 0:
+        return
     cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
     deleted = 0
 
@@ -66,7 +69,7 @@ def _cleanup_expired():
         if uploaded_at > cutoff:
             continue
 
-        audio_path = meta_path.with_suffix("")  # strip .json → .m4a
+        audio_path = meta_path.with_name(meta_path.name.removesuffix(".meta.json"))
         if audio_path.exists():
             audio_path.unlink()
         meta_path.unlink()
@@ -96,7 +99,7 @@ async def lifespan(app: FastAPI):
 
 async def verify_token(request: Request):
     auth = request.headers.get("authorization", "")
-    if auth != f"Bearer {APP_TOKEN}":
+    if not hmac.compare_digest(auth.encode(), f"Bearer {APP_TOKEN}".encode()):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -139,9 +142,16 @@ def write_meta(audio_path: Path, rel_path: str, duration_sec: float, size_bytes:
     return meta
 
 
+def safe_audio_path(rel_path: str) -> Path:
+    path = (upload_dir / rel_path).resolve()
+    if not path.is_relative_to(upload_dir.resolve()) or path.suffix.lower() != ".m4a":
+        raise HTTPException(400, "Invalid recording path")
+    return path
+
+
 def read_meta(rel_path: str) -> dict:
     """读取指定音频的 meta.json。"""
-    audio_path = upload_dir / rel_path
+    audio_path = safe_audio_path(rel_path)
     meta_path = Path(str(audio_path) + ".meta.json")
     if not meta_path.exists():
         raise HTTPException(status_code=404, detail=f"Meta not found: {rel_path}")
@@ -150,7 +160,7 @@ def read_meta(rel_path: str) -> dict:
 
 def update_meta(rel_path: str, updates: dict):
     """更新 meta.json 的指定字段。"""
-    audio_path = upload_dir / rel_path
+    audio_path = safe_audio_path(rel_path)
     meta_path = Path(str(audio_path) + ".meta.json")
     meta = read_meta(rel_path)
     meta.update(updates)
@@ -167,7 +177,7 @@ app = FastAPI(title="WatchRec VPS", lifespan=lifespan)
 
 @app.get("/health")
 async def health(_=Depends(verify_token)):
-    return {"status": "alive"}
+    return {"status": "alive", "service": "watchrec-vps"}
 
 
 @app.post("/upload")
@@ -176,6 +186,8 @@ async def upload(file: UploadFile = File(...), _=Depends(verify_token)):
     接收音频文件，流式写盘（不读进内存），归档+建 meta。
     """
     raw_name = file.filename or "unnamed.m4a"
+    if raw_name.endswith("_tmp.m4a"):
+        raise HTTPException(status_code=400, detail="Unfinished recording files are not accepted")
     new_name, date_dir, duration_sec = parse_and_rename(raw_name)
 
     dest_dir = upload_dir / date_dir
@@ -218,10 +230,14 @@ async def list_pending(_=Depends(verify_token)):
             continue
         if meta.get("status") != "uploaded":
             continue
+        # 兼容旧客户端遗留数据：录音未正常 stop 的临时文件没有完整 M4A 索引，不能转写。
+        if str(meta.get("rel_path", "")).endswith("_tmp.m4a"):
+            continue
         results.append({
             "id": meta["rel_path"],
             "date": meta["rel_path"].split("/")[0] if "/" in meta["rel_path"] else "",
             "duration_sec": meta.get("duration_sec"),
+            "size_bytes": meta.get("size_bytes"),
             "uploaded_at": meta.get("uploaded_at"),
         })
     return results
@@ -231,7 +247,7 @@ async def list_pending(_=Depends(verify_token)):
 async def download(id: str = Query(...), _=Depends(verify_token)):
     """流式返回音频文件。id 为 URL 编码的相对路径。"""
     rel_path = unquote(id)
-    audio_path = upload_dir / rel_path
+    audio_path = safe_audio_path(rel_path)
     if not audio_path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {rel_path}")
     return FileResponse(str(audio_path), media_type="audio/mp4", filename=audio_path.name)
@@ -296,4 +312,4 @@ if __name__ == "__main__":
     print(f"  保留天数：  {RETENTION_DAYS}")
     print()
 
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host=HOST, port=PORT)

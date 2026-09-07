@@ -6,6 +6,21 @@
     android:layout_height="match_parent"
     android:background="@color/bg_main">
 
+    <TextView
+        android:id="@+id/connectionSettingsBtn"
+        android:layout_width="wrap_content"
+        android:layout_height="42dp"
+        android:gravity="center"
+        android:text="连接设置 · 尚未配置"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp"
+        android:paddingHorizontal="12dp"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <!-- 圆形录音按钮：宽 = 屏幕宽度 60%，1:1 宽高比 -->
     <FrameLayout
         android:id="@+id/recordButton"
@@ -15,12 +30,12 @@
         android:elevation="@dimen/btn_elevation"
         android:clickable="true"
         android:focusable="true"
-        app:layout_constraintWidth_percent="0.6"
+        app:layout_constraintWidth_percent="0.5"
         app:layout_constraintDimensionRatio="1:1"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent">
+        app:layout_constraintTop_toBottomOf="@id/connectionSettingsBtn"
+        app:layout_constraintBottom_toTopOf="@id/goToListBtn">
 
         <!-- 麦克风图标 -->
         <ImageView
@@ -48,7 +63,7 @@
     <TextView
         android:id="@+id/goToListBtn"
         android:layout_width="wrap_content"
-        android:layout_height="48dp"
+        android:layout_height="40dp"
         android:gravity="center"
         android:text="@string/go_to_list"
         android:textColor="@color/text_secondary"
@@ -63,6 +78,6 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginBottom="@dimen/padding_normal" />
+        android:layout_marginBottom="4dp" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

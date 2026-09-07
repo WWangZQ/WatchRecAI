@@ -36,11 +36,11 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Uploa
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from config import (
-    APP_TOKEN, IP_REPORT_INTERVAL_SEC, LAN_IP_OVERRIDE,
+    APP_TOKEN, IP_REPORT_INTERVAL_SEC, LAN_IP_OVERRIDE, CONNECTION, PORT, HOST, LAN_ENABLED,
     LOCAL_DATA_DIR, POLL_INTERVAL_SEC, TIMEZONE,
 )
 from worker import TranscribeWorker
-from vps_client import VPSClient
+from vps_client import VPSClient, safe_destination
 from runtime_state import (
     get_logs,
     get_state,
@@ -50,6 +50,11 @@ from runtime_state import (
     enrich_running,
 )
 from settings import get_llm, save_llm
+from connection_settings import read_connection, public_connection, save_connection, normalize_url, validate_token
+from paths import DATA_HOME
+from urllib.parse import urlsplit
+import hmac
+import ipaddress
 
 tz = ZoneInfo(TIMEZONE)
 
@@ -73,7 +78,7 @@ _poller_stop = threading.Event()
 _ip_stop = threading.Event()
 
 import re
-_FILENAME_RE = re.compile(r"^recording_(\d+)_(.+)\.m4a$")
+_FILENAME_RE = re.compile(r"^recording_(\d+)_(\d+|tmp)\.m4a$")
 
 
 # ── 文件名解析 & 归档（和 VPS 同规则）────────────────────
@@ -203,6 +208,8 @@ def _poller_loop():
 
 
 def _poll_once(data_dir: str):
+    if not _vps.configured:
+        return
     pending = _vps.get_pending()
     set_state(last_poll_at=time.time(), pending=len(pending))
     if not pending:
@@ -213,20 +220,40 @@ def _poll_once(data_dir: str):
 
     for item in pending:
         file_id = item["id"]
+        safe_destination(data_dir, file_id)
+        expected_size = item.get("size_bytes")
+
+        # VPS 新版本不会返回临时录音；这里兼容旧 VPS/历史脏数据，避免损坏文件反复排队。
+        if file_id.endswith("_tmp.m4a"):
+            print(f"  ⏭ 忽略未完成录音: {file_id}")
+            continue
 
         # 本地已有转写 JSON → 幂等回报（自愈之前失败的回报）
         local_json = find_local_json(data_dir, file_id)
         if local_json:
             try:
                 data = json.loads(local_json.read_text(encoding="utf-8"))
-                _vps.post_result(file_id, data.get("transcript", ""), data.get("raw", ""), data.get("language", ""))
-                print(f"  🔄 已回报: {file_id}")
+                if data.get("error"):
+                    failed_json = local_json.with_suffix(".failed.json")
+                    failed_json.unlink(missing_ok=True)
+                    local_json.replace(failed_json)
+                    print(f"  ↻ 保留失败记录并重试: {file_id}")
+                    local_json = None
+                else:
+                    _vps.post_result(file_id, data.get("transcript", ""), data.get("raw", ""), data.get("language", ""))
+                    print(f"  🔄 已回报: {file_id}")
+                    continue
             except Exception as e:
                 print(f"  ✗ 回报失败: {file_id} — {e}")
-            continue
+                continue
 
         # 本地已有音频但还没结果：在队列里就等；否则（上次失败/中断）重新入队
         local_audio = Path(data_dir) / file_id
+        if local_audio.exists() and expected_size and local_audio.stat().st_size != expected_size:
+            incomplete = Path(str(local_audio) + ".incomplete")
+            incomplete.unlink(missing_ok=True)
+            local_audio.replace(incomplete)
+            print(f"  ↻ 本地文件不完整，重新下载: {file_id}")
         if local_audio.exists():
             if _worker.is_queued(str(local_audio)):
                 print(f"  ⏳ 等待转写: {file_id}")
@@ -241,7 +268,8 @@ def _poll_once(data_dir: str):
     # 下载 + 提交转写
     for file_id in to_download:
         try:
-            local_path = _vps.download(file_id, data_dir)
+            item = next(item for item in pending if item["id"] == file_id)
+            local_path = _vps.download(file_id, data_dir, item.get("size_bytes"))
             print(f"  ⬇ 已下载: {file_id}")
             _worker.submit(local_path)
         except Exception as e:
@@ -254,8 +282,9 @@ def _ip_reporter_loop():
     """每 IP_REPORT_INTERVAL_SEC 秒上报一次局域网 IP 给 VPS。"""
     while not _ip_stop.is_set():
         try:
-            ip = detect_lan_ip()
-            _vps.report_lan_info(ip, 8765)
+            if _vps.configured and LAN_ENABLED:
+                ip = detect_lan_ip()
+                _vps.report_lan_info(ip, PORT)
         except Exception as e:
             print(f"  ✗ IP 上报失败: {e}")
         _ip_stop.wait(IP_REPORT_INTERVAL_SEC)
@@ -272,20 +301,10 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=_poller_loop, daemon=True, name="poller").start()
     threading.Thread(target=_ip_reporter_loop, daemon=True, name="ip-reporter").start()
 
-    # 立即上报一次 IP
-    try:
-        ip = detect_lan_ip()
-        _vps.report_lan_info(ip, 8765)
-        set_state(lan_ip=ip)
-        print(f"  ✓ LAN IP 已上报: {ip}:8765")
-    except Exception as e:
-        print(f"  ⚠ 首次 IP 上报失败: {e}")
-
-    print()
-    print(f"  LAN 接收口: http://0.0.0.0:8765")
-    print(f"  VPS 轮询:   每 {POLL_INTERVAL_SEC}s")
-    print(f"  数据目录:   {LOCAL_DATA_DIR}")
-    print()
+    print(f"  电脑界面: http://127.0.0.1:{PORT}")
+    print(f"  数据目录: {LOCAL_DATA_DIR}")
+    if not _vps.configured:
+        print("  尚未配置 VPS；可在设置中连接服务器，或先使用本地导入。")
 
     yield
 
@@ -293,18 +312,100 @@ async def lifespan(app: FastAPI):
     print("  ⏹ 正在关闭...")
     _poller_stop.set()
     _ip_stop.set()
-    _vps.clear_lan_info()
+    if LAN_ENABLED:
+        _vps.clear_lan_info()
     _worker.stop()
 
 
 app = FastAPI(title="WatchRec PC", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def local_desktop_boundary(request: Request, call_next):
+    """Only the authenticated watch endpoints are available on the LAN."""
+    if request.url.path not in {"/health", "/upload"}:
+        peer = request.client.host if request.client else ""
+        try:
+            is_local = ipaddress.ip_address(peer).is_loopback
+        except ValueError:
+            is_local = False
+        host = request.url.hostname
+        origin = request.headers.get("origin")
+        if (not is_local or host not in {"127.0.0.1", "localhost", "::1"}
+                or (origin and origin != f"{request.url.scheme}://{request.url.netloc}")):
+            return JSONResponse({"detail": "请在这台电脑的本地窗口中操作。"}, status_code=403)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/api/connection")
+def api_get_connection():
+    saved = read_connection()
+    return {
+        **public_connection(saved),
+        "restart_required": saved != CONNECTION,
+        "configured": bool(CONNECTION["vps_base_url"] and CONNECTION["app_token"]),
+        "data_dir": str(DATA_HOME),
+        "active_port": PORT,
+        "edition": "WatchRec Open Source",
+    }
+
+
+@app.post("/api/connection")
+async def api_save_connection(request: Request):
+    try:
+        saved = save_connection(await request.json())
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e)) from None
+    return {**public_connection(saved), "restart_required": saved != CONNECTION}
+
+
+@app.post("/api/connection/test")
+async def api_test_connection(request: Request):
+    from starlette.concurrency import run_in_threadpool
+    import requests
+    body = await request.json()
+    try:
+        base = normalize_url(body.get("vps_base_url", ""))
+        token = validate_token(body.get("app_token") or read_connection()["app_token"])
+        if not base or not token:
+            raise ValueError("请先填写服务器地址和连接密钥。")
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    def probe():
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                resp = session.get(f"{base}/health", headers={"Authorization": f"Bearer {token}"},
+                                   timeout=(5, 8), allow_redirects=False)
+                if resp.status_code == 401:
+                    return {"ok": False, "message": "服务器已响应，但连接密钥不匹配（401）。"}
+                if 300 <= resp.status_code < 400:
+                    return {"ok": False, "message": "地址发生重定向，请直接填写最终的 HTTPS 地址。"}
+                if resp.status_code != 200:
+                    return {"ok": False, "message": f"服务器返回 HTTP {resp.status_code}，请核对端口与反向代理。"}
+                try:
+                    data = resp.json()
+                except ValueError:
+                    data = {}
+                if not isinstance(data, dict) or data.get("status") != "alive" or data.get("service") != "watchrec-vps":
+                    return {"ok": False, "message": "该地址不是此版本的 WatchRec VPS 服务，请核对地址或升级 VPS。"}
+                return {"ok": True, "message": "VPS 连接成功，密钥匹配。保存后重启电脑端开始同步。"}
+        except requests.exceptions.SSLError:
+            return {"ok": False, "message": "HTTPS 证书校验失败。请使用有效的公共证书，且地址须与证书匹配。"}
+        except requests.exceptions.RequestException:
+            return {"ok": False, "message": "连接失败或超时，请检查地址、服务器是否启动及防火墙端口。"}
+    return await run_in_threadpool(probe)
+
+
 # ── 鉴权 ──────────────────────────────────────────────────
 
 async def verify_token(request: Request):
     auth = request.headers.get("authorization", "")
-    if auth != f"Bearer {APP_TOKEN}":
+    if not APP_TOKEN or not hmac.compare_digest(auth.encode(), f"Bearer {APP_TOKEN}".encode()):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -312,7 +413,7 @@ async def verify_token(request: Request):
 
 @app.get("/health")
 async def health(_=Depends(verify_token)):
-    return {"status": "alive"}
+    return {"status": "alive", "service": "watchrec-pc"}
 
 
 @app.post("/upload")
@@ -346,6 +447,11 @@ async def viewer_index():
     if not html_path.exists():
         raise HTTPException(404, "viewer.html not found")
     return FileResponse(str(html_path), media_type="text/html")
+
+
+@app.get("/connection.js")
+async def connection_script():
+    return FileResponse(Path(__file__).parent / "app" / "connection.js", media_type="application/javascript")
 
 
 @app.get("/api/status")
@@ -505,20 +611,12 @@ _ENRICH_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="enrich")
 
 
 def _run_enrich(rid: str, json_path: Path, transcript: str):
-    from llm import enrich
-
-    def progress(phase, done, total):
-        label = {"denoise": "AI 去噪", "summarize": "AI 总结", "headline": "起标题"}.get(phase, phase)
-        enrich_set(rid, status="running", phase=label, done=done, total=total)
+    from enrichment import run_enrichment
 
     try:
-        full, summary, head = enrich(transcript, progress=progress)
         data = json.loads(json_path.read_text(encoding="utf-8"))
-        data["full_text"] = full
-        data["summary"] = summary
-        data["headline"] = head
-        json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        enrich_set(rid, status="done", phase="完成", error=None)
+        force = bool(data.get("full_text") and data.get("summary") and data.get("headline"))
+        run_enrichment(rid, json_path, force=force)
         print(f"  ✓ AI 整理完成：{rid}")
     except Exception as e:
         enrich_set(rid, status="error", error=str(e))
@@ -554,13 +652,16 @@ def api_enrich(id: str = Query(...)):
 @app.get("/api/enrich/status")
 def api_enrich_status(id: str = Query(...)):
     """查询某条录音的 AI 整理进度。"""
-    return enrich_get(id) or {"status": "idle"}
+    from enrichment import persisted_status
+    json_path = _safe_resolve(Path(LOCAL_DATA_DIR), id, ".json")
+    return persisted_status(id, json_path)
 
 
 @app.post("/api/summarize")
 def api_summarize(id: str = Query(...)):
-    """重新生成「AI 总结」和「短标题」（基于现有全文，没有全文则用原文），回写边车。"""
-    from llm import headline, is_configured, summarize
+    """后台重新生成「AI 总结」和「短标题」；失败后可从已保存全文继续。"""
+    from llm import is_configured
+    from enrichment import run_enrichment
 
     if not is_configured():
         raise HTTPException(400, "LLM 未配置：请在 .env 填 LLM_BASE_URL / LLM_API_KEY")
@@ -575,16 +676,11 @@ def api_summarize(id: str = Query(...)):
     if not text:
         raise HTTPException(400, "没有可总结的文本")
 
-    try:
-        summary = summarize(text)
-        head = headline(summary or text)
-    except Exception as e:
-        raise HTTPException(502, f"AI 调用失败：{e}")
-
-    data["summary"] = summary
-    data["headline"] = head
-    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"status": "ok", "summary": summary, "headline": head}
+    if enrich_running(id):
+        return {"status": "running"}
+    enrich_set(id, status="running", phase="排队中", done=0, total=0, error=None)
+    _ENRICH_POOL.submit(run_enrichment, id, json_path, False, True)
+    return {"status": "started"}
 
 
 @app.post("/api/transcript")
@@ -603,6 +699,8 @@ async def api_update_transcript(id: str = Query(...), request: Request = ...):
     data = json.loads(json_path.read_text(encoding="utf-8"))
     data["transcript"] = transcript.strip()
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    from enrichment import invalidate_enrichment
+    invalidate_enrichment(id, json_path)
     return {"status": "ok"}
 
 
@@ -708,9 +806,5 @@ def _parse_range(range_header: str, file_size: int) -> tuple[int, int]:
 if __name__ == "__main__":
     import uvicorn
 
-    if not APP_TOKEN:
-        print("ERROR: APP_TOKEN not set. Check .env or environment variable.")
-        exit(1)
-
     # 单 worker：LAN 缓存在内存中
-    uvicorn.run(app, host="0.0.0.0", port=8765)
+    uvicorn.run(app, host=HOST, port=PORT, proxy_headers=False)
