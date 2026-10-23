@@ -33,3 +33,11 @@ watchrec-vps/uploads/
 watchrec-watch/local.properties
 watchrec-watch/build/
 watchrec-watch/app/build/
+
+# Next desktop build/runtime state
+node_modules/
+target/
+watchrec-desktop/app/src-tauri/gen/
+watchrec-desktop/data/
+watchrec-desktop/recordings/
+watchrec-desktop/private/

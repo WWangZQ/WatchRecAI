@@ -1,73 +1,39 @@
-# 电脑端：安装、设置与排错
+# Next 桌面使用
 
-## Windows 便携包
+## 本地转写
 
-将 `WatchRec-Windows-1.1.0-preview.zip` 完整解压到一个普通文件夹，双击 `WatchRec.exe`。保留 EXE 旁边的 `_internal/` 目录；它包含 Python 和依赖。便携包不需要 conda，也不会安装或修改你已有的网页应用。
+先按 [构建说明](build.md) 安装本地 ASR 环境与 FFmpeg，在设置中填写该环境的 Python 路径。首次转写下载 SenseVoiceSmall 和 FSMN VAD；后续读取本机模型缓存。CPU 可用，有兼容 CUDA 环境时使用 NVIDIA GPU。
 
-窗口仍使用本地网页。启动器优先找到 Chrome，再找 Edge，并用开源版独立浏览器目录打开；找不到时打开默认浏览器。不要只双击 HTML 文件，页面依赖本地服务。
+点击开始录音，允许系统麦克风权限。音频先写入本机分段 WAV，点击停止后进入本地队列。关闭正在录音的窗口时，可以选择后台继续或保存后退出。菜单栏或托盘可重新打开窗口、停止录音。录音期间不会启动下一条本地模型任务；已经运行的转写会完成。
 
-默认网页地址为 `http://127.0.0.1:18765`，只在应用启动期间有效。如果用浏览器「安装此网站为应用」创建快捷方式，之后仍需先启动 `WatchRec.exe`。网页快捷方式自身不能运行 Python 服务。
+也可以导入音频或拖入窗口。支持 WAV、M4A、MP3、AAC、FLAC、OGG、MP4；具体编码需由音频解码库支持。导入前检查格式，成功后保留独立副本。损坏或不支持的文件会显示错误。
 
-**首次转写**会在本机下载 SenseVoiceSmall 与 VAD 模型。等待时间取决于网络，之后使用缓存。便携包包含 CPU 运行环境；没有 NVIDIA 显卡也能使用。GPU 加速请使用后文源码安装方式。
+本地转写一次处理一条录音。重启后自动继续未完成且未暂停的任务。失败时保留音频和旧原文，显示错误并暂停；修复环境后点击继续本地转写。用本地模型重转会保存上次原文。
 
-## 连接设置
+## 旧版数据
 
-右上角「连接与设置」可填写 VPS 地址、连接密钥，测试连接。连接密钥对应 VPS 的 `APP_TOKEN`；不是 AI API Key。
+设置底部选择导入旧版录音与稿件，然后选择旧版 `downloads` 文件夹。已有 JSON 边车中的原文、全文、摘要、标题与日期会保留；尚无有效原文的音频重新转写。源文件保持在原位置，Next 使用自己的副本。再次从同一路径导入会跳过已有记录。
 
-保存后，等待当前录音处理完，关闭并重新打开开源版。网页上会显示「设置已保存 · 等待重启」。这样可以让正在进行的下载和回报继续使用同一台服务器。修改端口后，浏览器快捷方式也需改成新端口。
+原文、清晰全文、旧版摘要及译文分别展示。可以改标题、搜索、回听音频分段、复制或导出文本。生成中的全文以草稿显示，完成后可以导出。
 
-「测试连接」只检查 `/health` 的服务标识和密钥，不上传音频，也不启用同步。遇到证书错误请修好服务器证书；程序不会关闭证书校验。
+## 可选 AI
 
-局域网直传默认关闭。开启后服务监听本机所有 IPv4 网卡的已设定端口，只有带密钥的手表上传接口可从其他设备使用；录音网页、AI 设置和连接设置仍仅允许本机访问。防火墙只需在需要直传的私人网络放行此端口。
+AI 默认关闭。开启前填写 OpenAI 兼容接口的 `/v1` 地址、模型名和按需填写的 API Key。启用后已完成转写的记录会自动整理，用户导入的旧稿件保留原样，可手动重新整理。已有文字会发送给配置的服务。
 
-## AI 设置
+整理严格以原文为输入，保留中英混用、否定与不确定性。每段完成后保存进度，中断会从已完成段落之后继续；网络暂时失败按退避间隔自动重试。服务拒绝处理的段落保留原文并明确标记。译文从完整清晰全文生成，分段保存；全文改变后提示重新翻译。
 
-左下角「设置 → AI 设置」填入你选择的兼容 API 的 Base URL、API Key 和模型名，保存后立即生效。模型名必须由该服务支持。AI 会接收转写文字并可能产生费用；未配置时不调用它。
+## VPS 同步
 
-原有长录音分段、下载断点续传、AI 整理断点续跑保留。AI 处理中的进度和失败信息仍显示在查看页；修改转写文字会使旧的 AI 断点失效。
+在设置中开启服务器录音同步，填写自己 VPS 的地址、令牌和可选 CA 证书路径。每 30 秒检查新录音，下载中断后从断点继续。文件大小核对通过才进入队列；完成本地转写后向服务器回报原文。AI 关闭或失败不影响原文回报。
 
-## 数据与退出
+Next 使用 VPS 同步，旧 Python 桌面的局域网 HTTP 直传服务已退役。手表端应配置 VPS 地址。
 
-打包版数据位于 `%LOCALAPPDATA%\WatchRecOpenSource`；在 PowerShell 中可输入 `explorer "$env:LOCALAPPDATA\WatchRecOpenSource"` 打开。配置文件含连接密钥或 API Key，不要随截图或问题报告分享。请备份整个数据目录，特别是 `downloads/`。
+## 数据目录
 
-源码版默认在 `watchrec-server/data/`。设置环境变量 `WATCHREC_HOME` 可以改用其他独立目录；修改这个变量不自动搬移已有数据。
+- macOS：`~/Library/Application Support/org.watchrec.desktop/`
+- Windows：`%APPDATA%\org.watchrec.desktop\`
+- Linux：系统应用数据目录下的 `org.watchrec.desktop/`，Linux 尚未完成运行验证。
 
-正常情况下关闭独立窗口会停止服务。若浏览器把窗口交给后台进程，或使用默认浏览器回退方式，日志会提示服务继续运行，可在任务管理器结束 **开源版的 WatchRec.exe**。不要结束其他版本的 Python 或浏览器进程。处理长录音时，先等任务完成再退出。
+`sessions/` 保存录音、`job.json`、`transcription.json`、原始转写、整理与翻译进度。服务器下载保存在 `server-downloads/`。`settings.json` 含自行填写的令牌和密钥，应作为私人配置保管。备份整个应用数据目录可以一起保留关联音频。
 
-## 从源码运行
-
-建议 Python 3.10 或 3.11。以下在 Windows PowerShell 中、源码 `watchrec-server` 文件夹执行：
-
-```powershell
-.\setup.bat
-.\start.bat
-```
-
-`setup.bat` 创建当前文件夹的 `.venv`，安装 CPU PyTorch 和依赖。源码运行还需安装 [FFmpeg](https://ffmpeg.org/download.html)，并确认 `ffmpeg -version`、`ffprobe -version` 可用。静默启动可双击 `WatchRec.vbs`。
-
-Linux/macOS 的源码运行方式：
-
-```bash
-cd watchrec-server
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python server.py
-```
-
-另用系统包管理器安装 FFmpeg，然后在**同一台电脑**浏览器中打开 `http://127.0.0.1:18765`。本轮没有制作或验收 Linux/macOS 桌面安装包。
-
-## NVIDIA GPU（可选）
-
-在独立 `.venv` 中安装与你的驱动兼容的 GPU 版 PyTorch 与 torchaudio，命令以 [PyTorch 官方安装选择器](https://pytorch.org/get-started/locally/)为准。先运行：
-
-```powershell
-.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"
-```
-
-显示 `True` 后，在连接设置的高级选项选「自动」或「NVIDIA CUDA」，保存并重启。CPU 便携包不能仅通过下拉框变成 GPU 版；需要对应的 GPU 运行库。
-
-## 常见问题
-
-端口被占用时，程序会报错并退出，不复用该端口上的未知服务。关闭重复启动的开源版，或编辑开源版数据目录 `connection.json` 中的 `local_port`，改为未占用的 1024–65535 端口后再打开。不要因此关闭旧版本。
-
-启动或转写出错时，先看数据目录的 `watchrec.log`，或者左下角「设置 → 服务日志」。模型下载失败可以检查到 ModelScope 的网络连接；CPU 转写长录音比 GPU 慢。未配置 VPS 不影响导入音频。
+测试可通过 `--data-dir` 指定独立目录。开源版的默认数据目录与个人 Next 版本分开。

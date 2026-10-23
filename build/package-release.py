@@ -1,62 +1,56 @@
-"""Create clean distributable archives from explicit source folders."""
-from pathlib import Path
+"""Build source/VPS archives from a reviewed Git file allowlist, never runtime directories.
+
+Run: python build/package-release.py [--version VERSION]
+Desktop installers are built separately with Tauri; this script never packages an
+arbitrary local app bundle or Python environment.
+"""
+import argparse
 import hashlib
-import shutil
+from pathlib import Path
+import re
+import subprocess
 import zipfile
 
-ROOT = Path(__file__).resolve().parents[1]
-DIST = ROOT / "dist"
-VERSION = "1.1.0-preview"
-DIST.mkdir(exist_ok=True)
-excluded_parts = {".git", ".gradle", "__pycache__", ".venv", "data", "downloads", "uploads", ".pytest_cache"}
-excluded_names = {"local.properties", "settings.json", ".env", "server.crt"}
+ROOT=Path(__file__).resolve().parents[1]
+DIRS={'watchrec-desktop','watchrec-vps','watchrec-watch','docs','build','tests','.github'}
+FILES={'README.md','AGENTS.md','.gitignore','.gitattributes','CHANGELOG.md','THIRD_PARTY_NOTICES.md','LICENSE'}
+EXCLUDED={'node_modules','target','dist','gen','.git','.gradle','__pycache__','.venv','private','data','downloads','uploads','recordings','.verification','.build-env','.build-tools','.build-output'}
+FORBIDDEN_SUFFIXES={'.wav','.m4a','.mp3','.aac','.flac','.ogg','.mp4','.webm','.pem','.key','.p12','.jks','.keystore','.log','.pyc','.db','.sqlite'}
+TEXT_SUFFIXES={'.rs','.py','.ts','.js','.json','.toml','.html','.css','.kt','.kts','.sh','.ps1','.yaml','.yml','.xml','.properties','.txt'}
+# These strings must never occur in implementation files. The audit itself and
+# boundary documentation intentionally name the exclusions.
+PRIVATE_MARKERS=[b'wetype',b'wechat', '微信'.encode(), b'top.willy.watchrec.next', b'/Users/willy/', b'token-plan-cn.xiaomimimo.com',b'2moro.top']
 
+def candidates():
+    names=subprocess.check_output(['git','ls-files','-z','--cached','--others','--exclude-standard'],cwd=ROOT).decode().split('\0')
+    return sorted({name for name in names if name and (ROOT/name).is_file()})
 
-def sources():
-    for folder in ("watchrec-server", "watchrec-vps", "watchrec-watch", "docs", "build", "tests"):
-        for p in (ROOT / folder).rglob("*"):
-            if not p.is_file(): continue
-            rel = p.relative_to(ROOT)
-            if any(part in excluded_parts for part in rel.parts): continue
-            if rel.parts[0] == "watchrec-watch" and "build" in rel.parts: continue
-            if p.name in excluded_names or p.suffix.lower() in {".log", ".pyc", ".jks", ".keystore", ".m4a", ".wav", ".mp3", ".mp4", ".pem", ".key", ".crt"}: continue
-            if p.name.startswith(".env") and p.name != ".env.example": continue
-            yield p
-    for name in ("README.md", ".gitignore", ".gitattributes", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md"):
-        yield ROOT / name
+def validate(name):
+    p=Path(name)
+    if p.parts[0] not in DIRS and name not in FILES:return False
+    if any(part in EXCLUDED for part in p.parts):return False
+    if p.suffix.lower() in FORBIDDEN_SUFFIXES:return False
+    if p.name.startswith('.env') and p.name!='.env.example':return False
+    if p.name in {'settings.json','local.properties','protocol.json','identity.json','server.crt'}:return False
+    if (ROOT/p).is_symlink():raise ValueError(f'Symlink excluded from release: {name}')
+    if p.parts[0]=='watchrec-desktop' and p.suffix in TEXT_SUFFIXES:
+        text=(ROOT/p).read_bytes().lower()
+        for marker in PRIVATE_MARKERS:
+            if marker.lower() in text:raise ValueError(f'Private implementation marker in {name}')
+    return True
 
-
-def archive(path, files, base):
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-        for p in sorted(files):
-            z.write(p, p.relative_to(base).as_posix())
-
+def archive(path,names):
+    with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
+        for name in names:z.write(ROOT/name,'WatchRec/'+name)
 
 def main():
-    files = list(sources())
-    archive(DIST / f"WatchRec-Source-{VERSION}.zip", files, ROOT)
-    archive(DIST / f"WatchRec-VPS-{VERSION}.zip", [p for p in files if p.is_relative_to(ROOT / "watchrec-vps") or p.is_relative_to(ROOT / "docs") or p.name in {"README.md", "THIRD_PARTY_NOTICES.md"}], ROOT)
-    apk = ROOT / "watchrec-watch/app/build/outputs/apk/debug/app-debug.apk"
-    if not apk.is_file(): raise SystemExit("Build the watch APK first")
-    shutil.copyfile(apk, DIST / f"WatchRec-Watch-{VERSION}.apk")
-    desktop = DIST / "WatchRec"
-    if not (desktop / "WatchRec.exe").is_file(): raise SystemExit("Build Windows desktop first")
-    for name in ("README.md", "THIRD_PARTY_NOTICES.md"):
-        shutil.copyfile(ROOT / name, desktop / name)
-    shutil.copytree(ROOT / "docs", desktop / "docs", dirs_exist_ok=True)
-    (desktop / "watchrec-vps").mkdir(exist_ok=True)
-    shutil.copyfile(ROOT / "watchrec-vps/README.md", desktop / "watchrec-vps/README.md")
-    archive(DIST / f"WatchRec-Windows-{VERSION}.zip", [p for p in desktop.rglob("*") if p.is_file()], DIST)
-    outputs = sorted([p for p in DIST.iterdir() if p.suffix in {".zip", ".apk"}])
-    lines = []
-    for p in outputs:
-        digest = hashlib.sha256()
-        with p.open("rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""): digest.update(chunk)
-        lines.append(f"{digest.hexdigest()}  {p.name}")
-    (DIST / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print("\n".join(f"{p.name}: {p.stat().st_size / 1024 / 1024:.1f} MiB" for p in outputs))
-
-
-if __name__ == "__main__":
-    main()
+    parser=argparse.ArgumentParser();parser.add_argument('--version',default='1.2.0-preview');args=parser.parse_args()
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+',args.version):parser.error('Invalid version')
+    names=[n for n in candidates() if validate(n)]
+    assert 'watchrec-desktop/app/src/main.ts' in names
+    out=ROOT/'dist';out.mkdir(exist_ok=True)
+    source=out/f'WatchRec-Source-{args.version}.zip';vps=out/f'WatchRec-VPS-{args.version}.zip'
+    archive(source,names);archive(vps,[n for n in names if n.startswith('watchrec-vps/') or n in {'THIRD_PARTY_NOTICES.md'}])
+    (out/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in [source,vps]))
+    print(f'Audited {len(names)} files; wrote {source.name} and {vps.name}')
+if __name__=='__main__':main()

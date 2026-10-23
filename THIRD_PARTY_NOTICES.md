@@ -1,13 +1,15 @@
 # Third-party components
 
-The Windows preview bundles a Python interpreter and third-party libraries. Collected license and notice files are in `third-party-licenses/` next to the executable. The build environment package versions are listed there as well; some are build tools rather than runtime dependencies.
+The Next desktop uses Tauri, Rust and a TypeScript/Vite frontend. Dependency versions are recorded in `watchrec-desktop/Cargo.lock` and `watchrec-desktop/app/package-lock.json`. Upstream license texts apply to their respective components:
 
-- Python: <https://www.python.org/psf/license/>
-- PyTorch and torchaudio: <https://github.com/pytorch/pytorch> and <https://github.com/pytorch/audio>
-- FunASR: <https://github.com/modelscope/FunASR>
-- ModelScope: <https://github.com/modelscope/modelscope>
-- SenseVoiceSmall and FSMN VAD models download on first transcription; they are not inside the executable. Model usage terms are published by their respective ModelScope repositories.
-- FFmpeg and ffprobe: <https://ffmpeg.org/>. Windows build origin: <https://www.gyan.dev/ffmpeg/builds/>. Build options and exact version are recorded in `third-party-licenses/ffmpeg-version.txt`; see that provider for the corresponding source and build recipes. FFmpeg has its own license and is a separate program invoked by WatchRec.
-- AndroidX, Kotlin and Android tools retain their upstream licenses. Android build tools are not part of the source or VPS archives.
+- Tauri and plugins: https://github.com/tauri-apps/tauri and https://github.com/tauri-apps/plugins-workspace (MIT / Apache-2.0).
+- CPAL: https://github.com/RustAudio/cpal (Apache-2.0); Rubato: https://github.com/HEnquist/rubato (MIT); Symphonia: https://github.com/pdeljanov/Symphonia (MPL-2.0).
+- Vite: https://github.com/vitejs/vite (MIT); TypeScript: https://github.com/microsoft/TypeScript (Apache-2.0).
+- The separately installed Python runtime and packages retain their upstream licenses: Python, requests, PyTorch, torchaudio, FunASR, ModelScope, SoundFile and tzdata.
+- SenseVoiceSmall and FSMN VAD download from ModelScope on first transcription. The app/source archive contains no model weights; the model repositories publish their usage terms.
+- FFmpeg/ffprobe are separately installed programs. Their licensing depends on the installed build; consult https://ffmpeg.org/legal.html and the binary provider's source/build recipes before redistributing them.
+- AndroidX, Kotlin and Android tools retain their upstream licenses. The watch/VPS source remains the configurable public implementation.
 
-This file describes third-party components. It does not assign a new license to the original WatchRec source. The original repository did not include a project license file in the snapshot used for this preview; the maintainer should select the project's license before a formal release.
+The previous v1.1.0-preview Python Windows bundle has its own collected notices inside that release. The current source migration does not repackage that runtime.
+
+This document does not assign a new license to original WatchRec source. The original repository did not include a project license; the maintainer should select one before a formal release.
