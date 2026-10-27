@@ -47,7 +47,7 @@ document.querySelector('#app')!.innerHTML = `
     <label>OpenAI 兼容接口地址<input id="baseUrl" type="url"></label><label>模型<input id="model"></label><label>API Key<input id="apiKey" type="password" autocomplete="off" placeholder="填写 API Key"></label><p id="keyHint" class="muted"></p>
     <details id="serverSettings"><summary>服务器录音同步</summary><label class="check-label"><input id="serverEnabled" type="checkbox">打开后自动下载并转写服务器录音</label><label>服务器地址<input id="serverUrl" type="url" placeholder="https://服务器地址"></label><label>访问令牌<input id="serverToken" type="password" autocomplete="off" placeholder="留空保留现有令牌"></label><p id="serverTokenHint" class="muted"></p><label>服务器证书路径<input id="serverCert" placeholder="使用系统信任的证书时可留空"></label><p class="muted">每 30 秒检查新录音。下载中断后会继续，完成转写后回报服务器。下载完成后进入本地转写队列。</p></details>
     <details><summary>本地转写环境</summary><label>Python 路径<input id="pythonPath" required></label><p class="muted">选择已安装 FunASR、PyTorch 和 requests 的 Python。模型按任务加载，首次转写需要下载模型；请先安装 FFmpeg。</p></details>
-    <div class="history-import"><button id="importHistory" type="button" class="quiet">导入旧版录音与稿件 ↗</button><p class="muted">选择旧版 downloads 文件夹。导入音频与已有原文、全文和摘要；未转写音频进入本地队列。重复导入会跳过。</p></div>
+    <div class="history-import"><button id="importHistory" type="button" class="quiet">导入旧版录音与稿件 ↗</button><p class="muted">选择旧版 downloads 文件夹。导入音频与已有原文、全文和摘要；待转写音频进入本地队列。重复导入会跳过。</p></div>
     <div class="modal-actions"><button id="settingsCancel" type="button" class="quiet">取消</button><button type="submit" class="primary">保存设置</button></div>
   </form></dialog>
   <dialog id="renameDialog" aria-labelledby="renameTitle"><h2 id="renameTitle">录音标题</h2><form id="renameForm"><input id="titleInput" aria-label="录音标题" maxlength="120"><p class="muted">留空可恢复自动标题。</p><div class="modal-actions"><button id="renameCancel" type="button" class="quiet">取消</button><button type="submit" class="primary">保存</button></div></form></dialog>
@@ -106,7 +106,7 @@ function renderText() {
   if(field==='summary' && $('summaryTab').hidden) { field='full_text';renderText();return; }
   $('emptyTitle').textContent=field==='raw'?'让声音变成文字':field==='full_text'?'把表达整理清楚':field==='translation'?'换一种语言阅读':'留下值得记住的要点';
   const job=state?.selected;
-  $('emptyHint').textContent=!job?'音频保存在本机，停止录音后自动转写；可选生成清晰全文。':field==='raw'?(job.finished?'这段音频没有识别出文字。':job.provider==='local'?'本地模式在录音停止后开始识别。':'文字会随识别陆续显示，句尾可能继续修正。'):currentAi()?.status==='retry-wait'?'AI 连接暂时中断，稍后自动继续，已完成段落已保存。':currentAi()?.error?'整理暂未完成，可在下方重试。':!settings.ai_enabled?'可在设置中启用 AI 全文整理。':!job.finished?'原文识别完成后，会自动生成。':'正在等待整理，完成的稿件会显示在这里。';
+  $('emptyHint').textContent=!job?'音频保存在本机，停止录音后自动转写；可选生成清晰全文。':field==='raw'?(job.finished?'这段音频没有识别出文字。':job.provider==='local'?'本地模式在录音停止后开始识别。':'文字会随识别陆续显示，句尾可能继续修正。'):currentAi()?.status==='retry-wait'?'AI 连接暂时中断，稍后自动继续，已完成段落已保存。':currentAi()?.error?'整理中断，可在下方重试。':!settings.ai_enabled?'可在设置中启用 AI 全文整理。':!job.finished?'原文识别完成后，会自动生成。':'正在等待整理，完成的稿件会显示在这里。';
   const translated=currentTranslation();
   $('translationTools').hidden=field!=='translation';
   $('translateOpen').hidden=field!=='full_text'||!currentAi()?.full_text;
@@ -115,7 +115,7 @@ function renderText() {
   $('translationStatus').textContent=translated?.outdated?'全文已更新，点击重新翻译可生成对应译文。':translated?.error??(translated?.status==='running'?'已翻译 '+translated.done+' / '+translated.total+' 段':translated?.status==='done'?'译文已独立保存，可复制或导出。':'选择目标语言后开始，已完成的段落会自动保存。');
   $('translationStatus').className=translated?.error||translated?.outdated?'warning':'';
   if(field==='translation') $('emptyHint').textContent=!currentAi()?.full_text?'先生成全文，再选择目标语言翻译。':translated?.outdated?'全文已更新，请重新生成译文。':translated?.error??(translated?.status==='running'?'正在翻译，完成的段落会陆续显示。':'启用 AI 后点击开始翻译，译文会独立保存。');
-  if(job?.finished&&!job.raw.trim()&&currentAi()?.status==='empty') $('emptyHint').textContent='这段音频未识别到文字，无法生成全文、总结或译文。音频已保留，可以回听。';
+  if(job?.finished&&!job.raw.trim()&&currentAi()?.status==='empty') $('emptyHint').textContent='识别结果为空，可以回听音频或重新转写。';
   $('characters').textContent=Array.from(value).length.toLocaleString()+' 字';
   $<HTMLButtonElement>('copy').disabled=!value;
   $<HTMLButtonElement>('export').disabled=!value || field==='full_text' && !!currentAi()?.draft_text;
@@ -217,7 +217,7 @@ $('export').onclick=()=>{void action(async()=>{const path=await save({defaultPat
 $('folder').onclick=()=>{void action(()=>invoke('open_folder',{id:selected}));};
 $('audioPart').onchange=()=>{const path=audioPaths[Number($<HTMLSelectElement>('audioPart').value)];if(path)$<HTMLAudioElement>('audio').src=audioUrl(path);};
 $('audio').onerror=()=>{$('audioHint').hidden=false;};
-$('settings').onclick=()=>{void action(async()=>{settings=await invoke<Settings>('get_settings');$<HTMLInputElement>('aiEnabled').checked=settings.ai_enabled;$<HTMLInputElement>('baseUrl').value=settings.llm_base_url;$<HTMLInputElement>('model').value=settings.llm_model;$<HTMLInputElement>('pythonPath').value=settings.python_path;$<HTMLInputElement>('apiKey').value='';$('keyHint').textContent=settings.api_key_set?'已配置 API Key，留空则继续使用。':'尚未配置 API Key。';$<HTMLInputElement>('serverEnabled').checked=settings.server_enabled;$<HTMLInputElement>('serverUrl').value=settings.server_url;$<HTMLInputElement>('serverCert').value=settings.server_ca_cert;$<HTMLInputElement>('serverToken').value='';$('serverTokenHint').textContent=settings.server_token_set?'已配置访问令牌，留空则继续使用。':'尚未配置访问令牌。';$<HTMLDialogElement>('settingsDialog').showModal();});};
+$('settings').onclick=()=>{void action(async()=>{settings=await invoke<Settings>('get_settings');$<HTMLInputElement>('aiEnabled').checked=settings.ai_enabled;$<HTMLInputElement>('baseUrl').value=settings.llm_base_url;$<HTMLInputElement>('model').value=settings.llm_model;$<HTMLInputElement>('pythonPath').value=settings.python_path;$<HTMLInputElement>('apiKey').value='';$('keyHint').textContent=settings.api_key_set?'已配置 API Key，留空则继续使用。':'按接口要求填写 API Key。';$<HTMLInputElement>('serverEnabled').checked=settings.server_enabled;$<HTMLInputElement>('serverUrl').value=settings.server_url;$<HTMLInputElement>('serverCert').value=settings.server_ca_cert;$<HTMLInputElement>('serverToken').value='';$('serverTokenHint').textContent=settings.server_token_set?'已配置访问令牌，留空则继续使用。':'填写服务器的访问令牌。';$<HTMLDialogElement>('settingsDialog').showModal();});};
 $('settingsCancel').onclick=()=>{$<HTMLDialogElement>('settingsDialog').close();};
 $('settingsForm').onsubmit=e=>{e.preventDefault();void action(async()=>{await invoke('save_settings',{settings:{ai_enabled:$<HTMLInputElement>('aiEnabled').checked,llm_base_url:$<HTMLInputElement>('baseUrl').value.trim(),llm_model:$<HTMLInputElement>('model').value.trim(),llm_api_key:$<HTMLInputElement>('apiKey').value.trim(),python_path:$<HTMLInputElement>('pythonPath').value.trim(),default_asr:provider(),server_enabled:$<HTMLInputElement>('serverEnabled').checked,server_url:$<HTMLInputElement>('serverUrl').value.trim(),server_token:$<HTMLInputElement>('serverToken').value.trim(),server_ca_cert:$<HTMLInputElement>('serverCert').value.trim()}});settings=await invoke<Settings>('get_settings');$<HTMLDialogElement>('settingsDialog').close();notice('设置已保存');});};
 $('importHistory').onclick=()=>{void action(async()=>{const path=await open({directory:true,multiple:false,title:'选择旧版 WatchRec 的 downloads 文件夹'});if(typeof path==='string'){notice('正在复制旧音频并加入转写队列…');const result=await invoke<{imported:number;existing:number;errors:string[]}>('import_history',{path});notice('已加入 '+result.imported+' 条录音，跳过 '+result.existing+' 条重复记录。'+(result.errors.length?'\n有 '+result.errors.length+' 个文件无法读取：'+result.errors.slice(0,2).join('；'):''));}});};
@@ -229,7 +229,7 @@ $('closeBackground').onclick=()=>{void action(async()=>{await invoke('hide_to_tr
 $('closeExit').onclick=()=>{closeDialog.close();void action(()=>invoke('quit_app'));};
 await listen<{exit:boolean;recording:boolean}>('close-requested',event=>{
   $('closeTitle').textContent=event.payload.exit?'停止录音并退出？':'把录音留在后台？';
-  $('closeDescription').textContent=event.payload.exit?'退出会停止录音并保存已有音频与文字，下次启动会继续未暂停的转写与整理任务。':(event.payload.recording?'后台会继续录音和保存。':'麦克风尚未就绪，后台会继续等待。')+'可从 WatchRec 菜单栏或托盘图标重新打开或停止录音。';
+  $('closeDescription').textContent=event.payload.exit?'退出会停止录音并保存已有音频与文字，下次启动会继续未暂停的转写与整理任务。':(event.payload.recording?'后台会继续录音和保存。':'正在等待麦克风，后台会继续等待。')+'可从 WatchRec 菜单栏或托盘图标重新打开或停止录音。';
   $('closeBackground').hidden=event.payload.exit;if(!closeDialog.open)closeDialog.showModal();
 });
 await getCurrentWebviewWindow().onDragDropEvent(event=>{const data=event.payload;$('dropOverlay').hidden=!['enter','over'].includes(data.type);if(data.type==='drop'&&data.paths[0])void addFile(data.paths[0]);});

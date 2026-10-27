@@ -41,3 +41,7 @@ watchrec-desktop/app/src-tauri/gen/
 watchrec-desktop/data/
 watchrec-desktop/recordings/
 watchrec-desktop/private/
+
+# Local contributor instructions and release configuration
+AGENTS.md
+.release-exclusions.json

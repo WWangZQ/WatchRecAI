@@ -6,6 +6,7 @@ arbitrary local app bundle or Python environment.
 """
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -13,13 +14,14 @@ import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
 DIRS={'watchrec-desktop','watchrec-vps','watchrec-watch','docs','build','tests','.github'}
-FILES={'README.md','AGENTS.md','.gitignore','.gitattributes','CHANGELOG.md','THIRD_PARTY_NOTICES.md','LICENSE'}
+FILES={'README.md','.gitignore','.gitattributes','CHANGELOG.md','THIRD_PARTY_NOTICES.md','LICENSE'}
 EXCLUDED={'node_modules','target','dist','gen','.git','.gradle','__pycache__','.venv','private','data','downloads','uploads','recordings','.verification','.build-env','.build-tools','.build-output'}
 FORBIDDEN_SUFFIXES={'.wav','.m4a','.mp3','.aac','.flac','.ogg','.mp4','.webm','.pem','.key','.p12','.jks','.keystore','.log','.pyc','.db','.sqlite'}
 TEXT_SUFFIXES={'.rs','.py','.ts','.js','.json','.toml','.html','.css','.kt','.kts','.sh','.ps1','.yaml','.yml','.xml','.properties','.txt'}
-# These strings must never occur in implementation files. The audit itself and
-# boundary documentation intentionally name the exclusions.
-PRIVATE_MARKERS=[b'wetype',b'wechat', '微信'.encode(), b'top.willy.watchrec.next', b'/Users/willy/', b'token-plan-cn.xiaomimimo.com',b'2moro.top']
+# Optional workspace-specific content filters.
+RULES = ROOT / ".release-exclusions.json"
+CONTENT_EXCLUSIONS = [value.encode("utf-8") for value in json.loads(RULES.read_text(encoding="utf-8"))] if RULES.is_file() else []
+
 
 def candidates():
     names=subprocess.check_output(['git','ls-files','-z','--cached','--others','--exclude-standard'],cwd=ROOT).decode().split('\0')
@@ -35,8 +37,8 @@ def validate(name):
     if (ROOT/p).is_symlink():raise ValueError(f'Symlink excluded from release: {name}')
     if p.parts[0]=='watchrec-desktop' and p.suffix in TEXT_SUFFIXES:
         text=(ROOT/p).read_bytes().lower()
-        for marker in PRIVATE_MARKERS:
-            if marker.lower() in text:raise ValueError(f'Private implementation marker in {name}')
+        for marker in CONTENT_EXCLUSIONS:
+            if marker.lower() in text:raise ValueError(f'Excluded content in {name}')
     return True
 
 def archive(path,names):

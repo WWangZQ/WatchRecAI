@@ -22,7 +22,7 @@ Windows PowerShell 示例：
 py -3.12 build/setup-local-asr.py "$env:LOCALAPPDATA\WatchRec-ASR"
 ```
 
-脚本输出 Python 路径，复制到 WatchRec 设置。模型通过 FunASR 按需下载。安装脚本不会预下载模型，也不读取其他应用的配置。桌面安装包包含 Python helper 源码，Python、PyTorch 和模型需要单独安装。
+将脚本输出的 Python 路径填入 WatchRec 设置。桌面包附带处理脚本，转写依赖安装在上述 Python 环境中，模型在首次转写时下载。
 
 ## 开发与打包
 
@@ -64,6 +64,6 @@ python build/package-release.py
 cargo run --manifest-path watchrec-desktop/Cargo.toml -p voiceink --example transcribe -- /tmp/watchrec-fresh-test /absolute/synthetic.wav /absolute/asr-env/bin/python /absolute/repo/watchrec-desktop
 ```
 
-使用不存在的数据目录和合成测试音频；驱动运行桌面相同的串行队列、Python helper 和结果保存路径。
+为测试指定一个新的数据目录和合成音频。此命令使用桌面的转写队列、处理脚本和结果保存流程。
 
-源码包仅从公开工作区的 Git 文件清单选取，排除运行环境、录音、配置、构建缓存和私有实现。检查脚本允许新源码尚未提交时先构建和检查归档。
+`package-release.py` 在 `dist/` 中生成源码包、VPS 部署包和 SHA-256 校验文件。

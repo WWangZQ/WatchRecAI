@@ -27,20 +27,18 @@ npm run tauri dev
 
 - **开始录音**：音频分段保存到本机，停止后自动排队转写。
 - **导入音频**：保存独立音频副本后转写，也支持拖入文件。
-- **导入旧版录音与稿件**：选择旧版 `downloads` 文件夹，保留原文、全文、摘要和标题；没有原文的音频进入本地队列。按原路径去重。
+- **导入旧版录音与稿件**：选择旧版 `downloads` 文件夹，保留原文、全文、摘要和标题；待识别的音频进入本地队列。按原路径去重。
 - **服务器录音同步**：默认关闭，配置后每 30 秒检查并下载新录音，转写完成后回报 VPS。
 - **清晰全文与译文**：在设置中主动启用 AI，填写自己的 OpenAI 兼容接口和模型。文字会发送到该接口；原音频留在本机。自建免密接口可留空 API Key。
 
-[桌面使用说明](docs/desktop.md) · [手表安装](docs/watch.md) · [VPS 部署](watchrec-vps/README.md) · [验证记录](docs/validation.md)
+[桌面使用说明](docs/desktop.md) · [手表安装](docs/watch.md) · [VPS 部署](watchrec-vps/README.md)
 
-## 数据与发布边界
+## 录音与数据
 
-开源版使用独立应用标识 `org.watchrec.desktop`，数据位于系统应用数据目录。应用启动时不会扫描其他版本的录音或读取其身份配置。模型在任务开始时加载，本地转写串行执行；已暂停任务保持暂停，未完成任务在重启后继续。
-
-公开源码仅包含本地 ASR 与通用模型接口。微信 ASR、微信私有协议、身份和会话数据、私人录音与配置均排除。发布前执行 `python3 build/package-release.py`，生成经目录白名单和源码扫描的源码包及 VPS 包。
+音频和文字保存在电脑的应用数据目录。本地转写按队列逐条处理，重启后接续任务进度。数据位置和备份方式见 [桌面使用说明](docs/desktop.md#数据目录)。
 
 ## 版本与下载
 
-本次迁移发布源码。旧的 [v1.1.0-preview 发布页](https://github.com/WWangZQ/WatchRecAI/releases/tag/v1.1.0-preview) 和历史标签继续保留，其中的 Windows 便携包使用旧 Python 界面。当前 Next 桌面请按源码构建，安装包通过 Tauri 单独生成。
+Next 桌面按 [构建说明](docs/build.md) 从源码运行或打包。手表 APK、VPS 部署包和旧版 Windows 便携包见 [v1.1.0-preview 下载页](https://github.com/WWangZQ/WatchRecAI/releases/tag/v1.1.0-preview)。
 
-项目现有源码尚未选择项目许可证；第三方组件及模型遵循各自许可，见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+第三方组件及模型信息见 [第三方声明](THIRD_PARTY_NOTICES.md)。
